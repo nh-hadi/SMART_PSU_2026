@@ -1,0 +1,2086 @@
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'theme.dart';
+
+class PsuPanelView extends StatefulWidget {
+  final Color activeColor;
+  final Widget? oscilloscopeWidget;
+  final double liveVolt;
+  final double liveAmp;
+  final bool ocpEnabled;
+  final double ocpLimit;
+  final Function(bool) onOcpEnabledChanged;
+  final Function(double) onOcpLimitChanged;
+
+  const PsuPanelView({
+    super.key,
+    required this.activeColor,
+    this.oscilloscopeWidget,
+    required this.liveVolt,
+    required this.liveAmp,
+    required this.ocpEnabled,
+    required this.ocpLimit,
+    required this.onOcpEnabledChanged,
+    required this.onOcpLimitChanged,
+  });
+
+  @override
+  State<PsuPanelView> createState() => _PsuPanelViewState();
+}
+
+class _PsuPanelViewState extends State<PsuPanelView> {
+  final PageController _rootPageController = PageController();
+  final PageController _subPageController = PageController();
+  int _activeSubPageIndex = 0; // 0: DETAIL, 1: VOLT & AMP, 2: ANALOG AMMETER
+
+  @override
+  void dispose() {
+    _rootPageController.dispose();
+    _subPageController.dispose();
+    super.dispose();
+  }
+
+  String _getSubPageTitle() {
+    switch (_activeSubPageIndex) {
+      case 0:
+        return 'PSU: DETAIL LENGKAP';
+      case 1:
+        return 'PSU: VOLT & AMPERE JUMBO';
+      case 2:
+      default:
+        return 'PSU: ANALOG AMMETER (1.0A)';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Jika tidak ada oscilloscopeWidget yang dipass, tampilkan _buildSplitView langsung
+    if (widget.oscilloscopeWidget == null) {
+      return _buildPsuMiddlePanel();
+    }
+
+    return PageView(
+      controller: _rootPageController,
+      children: [
+        // Halaman 1: Tampilan Standar (Panel 2 Kiri + Panel 3 Grafik Kanan)
+        Row(
+          children: [
+            Expanded(
+              flex: 4,
+              child: _buildPsuMiddlePanel(),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              flex: 6,
+              child: widget.oscilloscopeWidget!,
+            ),
+          ],
+        ),
+
+        // Halaman 2: LAYAR PENUH PERSIS SEPERTI GAMBAR (Analog Meter + WaveFormSamp Logic)
+        _buildWaveformSampFullscreenPanel(),
+
+        // Halaman 3: LAYAR PENUH MULTI-INSTRUMENT DASHBOARD (Persis Gambar Referensi User)
+        _buildDarkInstrumentDashboardPanel(),
+      ],
+    );
+  }
+
+  Widget _buildPsuMiddlePanel() {
+    return Column(
+      children: [
+        // Indikator Sub-Halaman Geser Panel PSU + Tombol Fullscreen WaveFormSamp
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 6),
+          margin: const EdgeInsets.only(bottom: 3),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: Colors.white12, width: 0.6),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.swipe, color: widget.activeColor, size: 10),
+                  const SizedBox(width: 4),
+                  Text(
+                    _getSubPageTitle(),
+                    style: TextStyle(
+                      color: widget.activeColor,
+                      fontSize: 7.5,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(3, (idx) {
+                      final isActive = _activeSubPageIndex == idx;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        width: isActive ? 12 : 5,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: isActive ? widget.activeColor : Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      );
+                    }),
+                  ),
+                  if (widget.oscilloscopeWidget != null) ...[
+                    const SizedBox(width: 6),
+                    GestureDetector(
+                      onTap: () {
+                        _rootPageController.animateToPage(
+                          1,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        margin: const EdgeInsets.only(right: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          border: Border.all(color: Colors.white24, width: 0.6),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                        child: const Text(
+                          'P2',
+                          style: TextStyle(color: Colors.white70, fontSize: 7, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        _rootPageController.animateToPage(
+                          2,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: widget.activeColor.withOpacity(0.2),
+                          border: Border.all(color: widget.activeColor, width: 0.8),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                        child: Text(
+                          'P3 [UI]',
+                          style: TextStyle(color: widget.activeColor, fontSize: 7, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // Area Display Utama (Bisa Di-swipe 3 Mode)
+        Expanded(
+          flex: 5,
+          child: PageView(
+            controller: _subPageController,
+            onPageChanged: (idx) {
+              setState(() => _activeSubPageIndex = idx);
+            },
+            children: [
+              _buildPsuDefaultView(),
+              _buildPsuVoltAmpOnlyView(),
+              _buildPsuAnalogAmpView(),
+            ],
+          ),
+        ),
+
+        // 2B: Panel SET OCP + SLIDER MAX 10A (Hanya tampil pada Halaman 0 Standar)
+        if (_activeSubPageIndex == 0) ...[
+          const SizedBox(height: 4),
+          AppTheme.buildPanel(
+            height: 64,
+            activeColor: widget.activeColor,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: 24,
+                  child: Row(
+                    children: [
+                      const Text(
+                        'SET OCP',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${widget.ocpLimit.toStringAsFixed(1)}A / 10A',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        widget.ocpEnabled ? 'ON' : 'OFF',
+                        style: TextStyle(
+                          color: widget.ocpEnabled ? Colors.white : Colors.white38,
+                          fontSize: 8.5,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Transform.scale(
+                        scale: 0.6,
+                        child: Switch(
+                          value: widget.ocpEnabled,
+                          activeColor: Colors.white,
+                          inactiveThumbColor: Colors.white38,
+                          inactiveTrackColor: Colors.transparent,
+                          onChanged: (val) {
+                            HapticFeedback.mediumImpact();
+                            widget.onOcpEnabledChanged(val);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 24,
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                      overlayShape: SliderComponentShape.noOverlay,
+                      activeTrackColor: Colors.white,
+                      inactiveTrackColor: Colors.white24,
+                      thumbColor: Colors.white,
+                    ),
+                    child: Slider(
+                      value: widget.ocpLimit,
+                      min: 0.0,
+                      max: 10.0,
+                      divisions: 100,
+                      onChanged: (val) {
+                        widget.onOcpLimitChanged(val);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 4),
+
+        // 2C: Tombol Analisis AI
+        AppTheme.buildPanel(
+          height: 40,
+          activeColor: widget.activeColor,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    duration: Duration(milliseconds: 1000),
+                    content: Text('Trigger AI Analysis: Mengirim snapshot arus PSU...'),
+                  ),
+                );
+              },
+              child: Container(
+                width: double.infinity,
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Icon(Icons.auto_awesome, color: Colors.white, size: 14),
+                    SizedBox(width: 6),
+                    Text(
+                      'PANEL 2C: [ START AI ANALYSIS ]',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ==========================================
+  // LAYAR PENUH PERSIS SEPERTI GAMBAR USER
+  // White Dial Gauge (0 - 2A, Red Center at 1A) + Digital 7-Seg Box + WaveFormSamp Dual Wave
+  // ==========================================
+  Widget _buildWaveformSampFullscreenPanel() {
+    final double displayAmp = widget.liveAmp > 0 ? widget.liveAmp : 1.250;
+    final double displayVolt = widget.liveVolt > 0 ? widget.liveVolt : 4.29;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: widget.activeColor.withOpacity(0.4), width: 1.0),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // ----------------------------------------
+          // BAGIAN ATAS (PUTIH): ANALOG GAUGE 0 - 2A + 7-SEG DISPLAY
+          // ----------------------------------------
+          Expanded(
+            flex: 10,
+            child: Stack(
+              children: [
+                // 1. Lampu Indikator Hijau (Kiri Atas)
+                Positioned(
+                  top: 8,
+                  left: 12,
+                  child: Container(
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF22C55E),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF22C55E).withOpacity(0.4),
+                          blurRadius: 6,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // 2. Icon Gembok Terkunci (Kanan Atas) + Tombol Kembali
+                Positioned(
+                  top: 8,
+                  right: 12,
+                  child: Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () {
+                          _rootPageController.animateToPage(
+                            0,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: const Icon(Icons.arrow_back, color: Colors.black87, size: 14),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Icon(Icons.lock, color: Colors.black87, size: 18),
+                    ],
+                  ),
+                ),
+
+                // 3. Canvas Busur Skala Analog Putih (0 s/d 2A) & Jarum Merah
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _WaveformSampWhiteGaugePainter(
+                      currentAmp: displayAmp,
+                    ),
+                  ),
+                ),
+
+                // 4. Dua Box Nilai Tengah: [4.29] V  [5.00] A
+                Positioned(
+                  top: 50,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Box Volt [ 4.29 ]
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text(
+                          displayVolt.toStringAsFixed(2),
+                          style: const TextStyle(
+                            color: Color(0xFF4ADE80),
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'V',
+                        style: TextStyle(
+                          color: Colors.black87,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+
+                      // Box OCP [ 5.00 ]
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text(
+                          widget.ocpLimit > 0 ? widget.ocpLimit.toStringAsFixed(2) : '5.00',
+                          style: const TextStyle(
+                            color: Color(0xFFFACC15),
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'A',
+                        style: TextStyle(
+                          color: Colors.black87,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              ],
+            ),
+          ),
+
+          // ----------------------------------------
+          // BAGIAN BAWAH (HITAM): DUAL WAVEFORM (VOLT HIJAU KOTAK & CURR KUNING LOGIC)
+          // ----------------------------------------
+          Expanded(
+            flex: 12,
+            child: Container(
+              color: Colors.black,
+              child: Stack(
+                children: [
+                  // Label Header: VOLT O (Hijau) & O CURR (Kuning)
+                  Positioned(
+                    top: 2,
+                    left: 50,
+                    right: 50,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: const [
+                            Text(
+                              'VOLT',
+                              style: TextStyle(
+                                color: Color(0xFF39FF14),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                            SizedBox(width: 3),
+                            Icon(Icons.circle_outlined, color: Color(0xFF39FF14), size: 9),
+                          ],
+                        ),
+                        Row(
+                          children: const [
+                            Icon(Icons.circle_outlined, color: Color(0xFFFFEB3B), size: 9),
+                            SizedBox(width: 3),
+                            Text(
+                              'CURR',
+                              style: TextStyle(
+                                color: Color(0xFFFFEB3B),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Sumbu Skala Voltase Kiri (10.00, 8.00, 6.00, 4.00, 2.00, 0.00)
+                  Positioned(
+                    top: 14,
+                    bottom: 4,
+                    left: 4,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text('10.00', style: TextStyle(color: Color(0xFF39FF14), fontSize: 9, fontFamily: 'monospace')),
+                        Text('8.00', style: TextStyle(color: Color(0xFF39FF14), fontSize: 9, fontFamily: 'monospace')),
+                        Text('6.00', style: TextStyle(color: Color(0xFF39FF14), fontSize: 9, fontFamily: 'monospace')),
+                        Text('4.00', style: TextStyle(color: Color(0xFF39FF14), fontSize: 9, fontFamily: 'monospace')),
+                        Text('2.00', style: TextStyle(color: Color(0xFF39FF14), fontSize: 9, fontFamily: 'monospace')),
+                        Text('0.00', style: TextStyle(color: Color(0xFF39FF14), fontSize: 9, fontFamily: 'monospace')),
+                      ],
+                    ),
+                  ),
+
+                  // Sumbu Skala Arus Kanan (.005, .004, .003, .002, .001, .000)
+                  Positioned(
+                    top: 14,
+                    bottom: 4,
+                    right: 4,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: const [
+                        Text('.005', style: TextStyle(color: Color(0xFFFFEB3B), fontSize: 9, fontFamily: 'monospace')),
+                        Text('.004', style: TextStyle(color: Color(0xFFFFEB3B), fontSize: 9, fontFamily: 'monospace')),
+                        Text('.003', style: TextStyle(color: Color(0xFFFFEB3B), fontSize: 9, fontFamily: 'monospace')),
+                        Text('.002', style: TextStyle(color: Color(0xFFFFEB3B), fontSize: 9, fontFamily: 'monospace')),
+                        Text('.001', style: TextStyle(color: Color(0xFFFFEB3B), fontSize: 9, fontFamily: 'monospace')),
+                        Text('.000', style: TextStyle(color: Color(0xFFFFEB3B), fontSize: 9, fontFamily: 'monospace')),
+                      ],
+                    ),
+                  ),
+
+                  // Custom Painter: Dual Waveform Logic persis gambar
+                  Positioned.fill(
+                    left: 36,
+                    right: 36,
+                    top: 14,
+                    bottom: 6,
+                    child: CustomPaint(
+                      painter: _WaveformSampLogicPainter(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Tampilan Halaman 0: Tampilan Standar 3 Baris (Volt, Ampere, Watt)
+  Widget _buildPsuDefaultView() {
+    final watt = widget.liveVolt * widget.liveAmp;
+    final mA = widget.liveAmp * 1000.0;
+    return Column(
+      children: [
+        Expanded(
+          child: AppTheme.buildPanel(
+            activeColor: widget.activeColor,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'VOLTASE OUTPUT',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 8.5,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${widget.liveVolt.toStringAsFixed(3)} V',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: AppTheme.buildPanel(
+            activeColor: widget.activeColor,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'ARUS BEBAN (mA / A)',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 8.5,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${mA.toStringAsFixed(1)} mA  /  ${widget.liveAmp.toStringAsFixed(3)} A',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: widget.activeColor,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Expanded(
+          child: AppTheme.buildPanel(
+            activeColor: widget.activeColor,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'KONSUMSI DAYA (WATT)',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 8.5,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${watt.toStringAsFixed(3)} W',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Tampilan Halaman 1: Khusus Volt & Ampere Saja (Font Jumbo & Bersih)
+  Widget _buildPsuVoltAmpOnlyView() {
+    return Column(
+      children: [
+        Expanded(
+          child: AppTheme.buildPanel(
+            activeColor: widget.activeColor,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: const [
+                    Text(
+                      'VOLTAGE',
+                      style: TextStyle(
+                        color: Colors.white60,
+                        fontSize: 8.5,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '0.000 - 30.000 V',
+                      style: TextStyle(
+                        color: Colors.white30,
+                        fontSize: 7.5,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        widget.liveVolt.toStringAsFixed(3),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 34,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'V',
+                        style: TextStyle(
+                          color: Colors.white60,
+                          fontSize: 16,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+
+        Expanded(
+          child: AppTheme.buildPanel(
+            activeColor: widget.activeColor,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'CURRENT',
+                      style: TextStyle(
+                        color: Colors.white60,
+                        fontSize: 8.5,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '${(widget.liveAmp * 1000).toStringAsFixed(0)} mA',
+                      style: const TextStyle(
+                        color: Colors.white30,
+                        fontSize: 7.5,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        widget.liveAmp.toStringAsFixed(3),
+                        style: TextStyle(
+                          color: widget.activeColor,
+                          fontSize: 34,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'A',
+                        style: TextStyle(
+                          color: widget.activeColor,
+                          fontSize: 16,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Tampilan Halaman 2: Analog Ampere Meter Jarum Tunggal (Skala Max 1.0A)
+  Widget _buildPsuAnalogAmpView() {
+    return AppTheme.buildPanel(
+      activeColor: widget.activeColor,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.speed, color: Colors.white70, size: 12),
+                      SizedBox(width: 4),
+                      Text(
+                        'ANALOG AMMETER (1.0A MAX)',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withOpacity(0.18),
+                      border: Border.all(color: Colors.redAccent, width: 0.6),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: Text(
+                      'LIMIT: ${widget.ocpLimit.toStringAsFixed(1)}A',
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 7,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 2.0),
+                  child: CustomPaint(
+                    size: Size.infinite,
+                    painter: _AnalogMeterGaugePainter(
+                      currentAmp: widget.liveAmp,
+                      maxAmp: 1.0,
+                      ocpLimit: widget.ocpLimit,
+                      accentColor: widget.activeColor,
+                    ),
+                  ),
+                ),
+              ),
+
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.04),
+                  borderRadius: BorderRadius.circular(3),
+                  border: Border.all(color: Colors.white12, width: 0.6),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'ARUS: ${widget.liveAmp.toStringAsFixed(3)} A',
+                      style: TextStyle(
+                        color: widget.activeColor,
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      '${(widget.liveAmp * 1000).toStringAsFixed(1)} mA',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 8.5,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    Text(
+                      'VOLT: ${widget.liveVolt.toStringAsFixed(3)} V',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 8.5,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ==========================================
+  // HALAMAN 3: MULTI-INSTRUMENT DASHBOARD (Persis Gambar Referensi User)
+  // Atas-Kiri: 0-500mA Analog Meter + Atas-Kanan: 3 Instrument Panels + Bawah: Curve Ammeter Dual Axis
+  // ==========================================
+  Widget _buildDarkInstrumentDashboardPanel() {
+    final double currentmA = widget.liveAmp * 1000.0;
+    final double displaymA = currentmA > 0 ? currentmA : 100.0;
+    final double displayVolt = widget.liveVolt > 0 ? widget.liveVolt : 5.20;
+    final double displayWatt = displayVolt * (displaymA / 1000.0);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F1216),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1.0),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // ----------------------------------------
+          // BAGIAN ATAS: SPLIT KIRI (METER 500mA) & KANAN (3 INSTRUMENT CARDS)
+          // ----------------------------------------
+          Expanded(
+            flex: 10,
+            child: Row(
+              children: [
+                // 1. KIRI: ANALOG METER 0-500 mA (Lebar dikurangi & pas proporsional)
+                Expanded(
+                  flex: 9,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(4, 4, 2, 2),
+                    child: Stack(
+                      children: [
+                        // Header Kanan Atas: Fast + Tombol Back
+                        Positioned(
+                          top: 6,
+                          right: 8,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  _rootPageController.animateToPage(
+                                    0,
+                                    duration: const Duration(milliseconds: 300),
+                                    curve: Curves.easeInOut,
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                  margin: const EdgeInsets.only(right: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white10,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                  child: const Icon(Icons.arrow_back, color: Colors.white70, size: 10),
+                                ),
+                              ),
+                              const Text(
+                                'Fast',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Dial Arc Gauge & Needle (0 - 500 mA)
+                        Positioned.fill(
+                          top: 2,
+                          bottom: 20,
+                          child: CustomPaint(
+                            painter: _DarkAmmeterGaugePainter(
+                              currentmA: displaymA,
+                            ),
+                          ),
+                        ),
+
+                        // Baris Bawah Meter: [5.20 v]  [ 100 mA ]  [Range & Max]
+                        Positioned(
+                          bottom: 6,
+                          left: 10,
+                          right: 10,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              // 5.20 v (#f78b9b pink kemerahan)
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    displayVolt.toStringAsFixed(2),
+                                    style: const TextStyle(
+                                      color: Color(0xFFF78B9B),
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  const Text(
+                                    'v',
+                                    style: TextStyle(
+                                      color: Color(0xFFE0E0E0),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+
+                              // Panel Nilai mA Menggantikan Diodes OPEN
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF646769).withOpacity(0.55),
+                                  borderRadius: BorderRadius.circular(5),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 3,
+                                      offset: const Offset(0, 1.5),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                                  textBaseline: TextBaseline.alphabetic,
+                                  children: [
+                                    Text(
+                                      displaymA.toStringAsFixed(0),
+                                      style: const TextStyle(
+                                        color: Color(0xFFA4F2CC), // Hijau mint terang
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Text(
+                                      'mA',
+                                      style: TextStyle(
+                                        color: Color(0xFFE0E0E0),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Spacer(),
+
+                              // Range & Max
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Text('Range  ', style: TextStyle(color: Color(0xFFB0B0B0), fontSize: 7.5, fontWeight: FontWeight.bold)),
+                                      Text('0-10A', style: TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text('Max  ', style: TextStyle(color: Color(0xFFB0B0B0), fontSize: 7.5, fontWeight: FontWeight.bold)),
+                                      Text('${widget.ocpLimit > 0 ? (widget.ocpLimit * 1000).toStringAsFixed(0) : "100"}mA', style: const TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // 2. KANAN: 3 MODUL INSTRUMEN (Lebar flex 11)
+                Expanded(
+                  flex: 11,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(2, 4, 4, 2),
+                    child: Column(
+                      children: [
+                        // Baris 1: Solder Temp + Frekuensi
+                        Expanded(
+                          flex: 5,
+                          child: Row(
+                            children: [
+                              // Modul 1: Solder Temp
+                              Expanded(
+                                flex: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.all(5),
+                                  margin: const EdgeInsets.only(right: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF161A21),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: const [
+                                          Icon(Icons.thermostat, color: Colors.white70, size: 10),
+                                          SizedBox(width: 3),
+                                          Text('Iron Temp', style: TextStyle(color: Colors.white70, fontSize: 7.8, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                      const Spacer(),
+                                      Row(
+                                        children: [
+                                          const Text(
+                                            '382',
+                                            style: TextStyle(
+                                              color: Color(0xFFEF4444),
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.w900,
+                                              fontFamily: 'monospace',
+                                            ),
+                                          ),
+                                          const SizedBox(width: 2),
+                                          const Text(
+                                            '°C',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          // Bar indikator level vertikal merah
+                                          Container(
+                                            width: 4,
+                                            height: 20,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white12,
+                                              borderRadius: BorderRadius.circular(2),
+                                            ),
+                                            alignment: Alignment.bottomCenter,
+                                            child: Container(
+                                              width: 4,
+                                              height: 14,
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFEF4444),
+                                                borderRadius: BorderRadius.circular(2),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const Spacer(),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: const [
+                                          Text('SET: 450°C', style: TextStyle(color: Colors.white54, fontSize: 6.8, fontFamily: 'monospace')),
+                                          Text('VIN: 12.5V', style: TextStyle(color: Color(0xFFEF4444), fontSize: 6.8, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              // Modul 2: Frequency
+                              Expanded(
+                                flex: 5,
+                                child: Container(
+                                  padding: const EdgeInsets.all(5),
+                                  margin: const EdgeInsets.only(left: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF161A21),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: const [
+                                          Icon(Icons.waves, color: Colors.white70, size: 10),
+                                          SizedBox(width: 3),
+                                          Text('Frequency', style: TextStyle(color: Colors.white70, fontSize: 7.8, fontWeight: FontWeight.bold)),
+                                        ],
+                                      ),
+                                      const Spacer(),
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                                        textBaseline: TextBaseline.alphabetic,
+                                        children: const [
+                                          Text(
+                                            '0.0',
+                                            style: TextStyle(
+                                              color: Color(0xFF38BDF8),
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w900,
+                                              fontFamily: 'monospace',
+                                            ),
+                                          ),
+                                          SizedBox(width: 2),
+                                          Text(
+                                            'MHz',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 8.5,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const Spacer(),
+                                      // Bar horizontal mini
+                                      Row(
+                                        children: List.generate(14, (idx) {
+                                          return Container(
+                                            margin: const EdgeInsets.only(right: 1.5),
+                                            width: 2.2,
+                                            height: 5,
+                                            color: idx < 2 ? const Color(0xFF38BDF8) : Colors.white12,
+                                          );
+                                        }),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+
+                        // Baris 2: Charging Data (USB PD/QC Data)
+                        Expanded(
+                          flex: 5,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF161A21),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.white.withOpacity(0.08)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: const [
+                                    Icon(Icons.usb, color: Colors.white70, size: 10),
+                                    SizedBox(width: 3),
+                                    Text('Charging Data', style: TextStyle(color: Colors.white70, fontSize: 7.8, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                const Spacer(),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      '${displayVolt.toStringAsFixed(2)}V',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                    Text(
+                                      '${widget.liveAmp.toStringAsFixed(3)}A',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                    Text(
+                                      '${displayWatt.toStringAsFixed(2)}W',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Spacer(),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: const [
+                                    Text('CC1: 0.0', style: TextStyle(color: Colors.white54, fontSize: 6.8, fontFamily: 'monospace')),
+                                    Text('CC2: 0.0', style: TextStyle(color: Colors.white54, fontSize: 6.8, fontFamily: 'monospace')),
+                                    Text('DP: 0.0', style: TextStyle(color: Colors.white54, fontSize: 6.8, fontFamily: 'monospace')),
+                                    Text('DM: 0.0', style: TextStyle(color: Colors.white54, fontSize: 6.8, fontFamily: 'monospace')),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ----------------------------------------
+          // BAGIAN BAWAH: DUAL AXIS CURVE AMMETER GRAPH (VOLT KIRI & mA KANAN)
+          // ----------------------------------------
+          Expanded(
+            flex: 12,
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(4, 2, 4, 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF12151B),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.white.withOpacity(0.08)),
+              ),
+              child: Column(
+                children: [
+                  // Toolbar Header
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.06))),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.show_chart, color: Colors.white70, size: 11),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'CURVE AMMETER',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Message Ticker Box
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(3),
+                              border: Border.all(color: Colors.white10),
+                            ),
+                            child: Row(
+                              children: const [
+                                Icon(Icons.campaign, color: Colors.white54, size: 10),
+                                SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    'Smart PSU Pro: Real-time Multi-channel High Precision Monitor',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 7.2,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Area Dual-Axis Plot
+                  Expanded(
+                    child: Row(
+                      children: [
+                        // Sumbu Kiri: V (0.0 s/d 5.0) Warna Merah/Coral
+                        Container(
+                          width: 26,
+                          padding: const EdgeInsets.only(left: 3, top: 2, bottom: 2),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text('V', style: TextStyle(color: Color(0xFFFB7185), fontSize: 7, fontWeight: FontWeight.bold)),
+                              Text('5.0', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('4.5', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('4.0', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('3.5', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('3.0', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('2.5', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('2.0', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('1.5', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('1.0', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('0.5', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('0', style: TextStyle(color: Color(0xFFFB7185), fontSize: 6.5, fontFamily: 'monospace')),
+                            ],
+                          ),
+                        ),
+
+                        // Plot Wave Canvas
+                        Expanded(
+                          child: CustomPaint(
+                            painter: _DarkCurveGraphPainter(),
+                          ),
+                        ),
+
+                        // Sumbu Kanan: mA (0 s/d 100) Warna Hijau Mint
+                        Container(
+                          width: 26,
+                          padding: const EdgeInsets.only(right: 3, top: 2, bottom: 2),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: const [
+                              Text('mA', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 7, fontWeight: FontWeight.bold)),
+                              Text('100', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('90', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('80', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('70', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('60', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('50', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('40', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('30', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('20', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('10', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                              Text('0', style: TextStyle(color: Color(0xFF86EFAC), fontSize: 6.5, fontFamily: 'monospace')),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Custom Painter: White Dial Gauge 0 - 2A persis seperti di gambar user
+/// Skala: 0, 0.25, 0.5, 0.75, 1 (Merah), 1.25, 1.5, 1.75, 2 (Merah)
+class _WaveformSampWhiteGaugePainter extends CustomPainter {
+  final double currentAmp;  const _WaveformSampWhiteGaugePainter({
+    required this.currentAmp,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    // Di Halaman 3, meter analog hanya menempati kolom kiri (sekitar 45% lebar layar)
+    // Di Halaman 2, agar persis sama dengan Halaman 3, targetWidth diambil ~45% dari size.width
+    final double targetWidth = size.width * 0.45;
+    final double scale = targetWidth / 495.0;
+
+    final double cx = size.width / 2.0;
+
+    final double rArc = 295.0 * scale;
+    final double rTickStart = 295.0 * scale;
+    final double rTickMinorEnd = 303.0 * scale;
+    final double rTickMidEnd = 309.0 * scale;
+    final double rTickMajorEnd = 317.0 * scale;
+    final double rText = 344.0 * scale;
+
+    // Batas atas angka di bawah panel header (margin 18px), persis halaman 3
+    final double cy = rText + 18.0;
+
+    const double startAngle = -46.0;
+    const double endAngle = 46.0;
+    const double totalRange = endAngle - startAngle;
+
+    // Helper: Polar to Cartesian (0 derajat di atas, searah jarum jam)
+    Offset polarToCartesian(double centerX, double centerY, double radius, double angleInDegrees) {
+      final double angleInRadians = (angleInDegrees - 90.0) * math.pi / 180.0;
+      return Offset(
+        centerX + (radius * math.cos(angleInRadians)),
+        centerY + (radius * math.sin(angleInRadians)),
+      );
+    }
+
+    // 1. Menggambar Garis Busur Utama (Arc)
+    final double startRad = (startAngle - 90.0) * math.pi / 180.0;
+    final double sweepRad = totalRange * math.pi / 180.0;
+
+    final arcPaint = Paint()
+      ..color = const Color(0xFF1E293B)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5 * scale
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: rArc),
+      startRad,
+      sweepRad,
+      false,
+      arcPaint,
+    );
+
+    // 2. Skala Ticks (0 s/d 2.0A) - 40 divisi (setiap 0.05A)
+    const int totalDivisions = 40;
+    const double maxScale = 2.0;
+
+    for (int i = 0; i <= totalDivisions; i++) {
+      final double angle = startAngle + (i / totalDivisions) * totalRange;
+
+      final bool isMajor = (i % 10 == 0); // 0, 0.5, 1.0, 1.5, 2.0
+      final bool isMid = (i % 5 == 0 && !isMajor); // 0.25, 0.75, 1.25, 1.75
+      final bool isRedTick = (i == 0 || i == 20 || i == 40); // 0, 1, 2 aksen merah
+
+      final double rEnd = isMajor ? rTickMajorEnd : (isMid ? rTickMidEnd : rTickMinorEnd);
+
+      final p1 = polarToCartesian(cx, cy, rTickStart, angle);
+      final p2 = polarToCartesian(cx, cy, rEnd, angle);
+
+      final tickPaint = Paint()
+        ..color = isRedTick
+            ? const Color(0xFFDC2626)
+            : (isMajor ? const Color(0xFF0F172A) : const Color(0xFF475569))
+        ..strokeWidth = (isMajor ? 2.5 : (isMid ? 1.8 : 1.2)) * scale
+        ..strokeCap = StrokeCap.round;
+
+      canvas.drawLine(p1, p2, tickPaint);
+
+      // Angka Skala Lengkap: 0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2
+      if (isMajor || isMid) {
+        final double val = (i / totalDivisions) * maxScale;
+        String labelText;
+        if (val == 0.0) {
+          labelText = '0';
+        } else if (val == 1.0) {
+          labelText = '1';
+        } else if (val == 2.0) {
+          labelText = '2';
+        } else if (val == 0.5) {
+          labelText = '0.5';
+        } else if (val == 1.5) {
+          labelText = '1.5';
+        } else {
+          labelText = val.toStringAsFixed(2);
+        }
+
+        final pText = polarToCartesian(cx, cy, rText, angle);
+
+        final tp = TextPainter(
+          text: TextSpan(
+            text: labelText,
+            style: TextStyle(
+              color: isRedTick ? const Color(0xFFDC2626) : const Color(0xFF0F172A),
+              fontSize: (isMajor ? 16.5 : 11.5) * scale,
+              fontWeight: FontWeight.w900,
+              fontFamily: 'monospace',
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        // Rotasi angka selaras sudut busur persis seperti di SVG Halaman 3
+        canvas.save();
+        canvas.translate(pText.dx, pText.dy);
+        canvas.rotate(angle * math.pi / 180.0);
+        tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+        canvas.restore();
+      }
+    }
+
+    // Label Unit Ampere di atas poros jarum
+    final unitTp = TextPainter(
+      text: TextSpan(
+        text: 'AMPERE (MAX 2.0A)',
+        style: TextStyle(
+          color: const Color(0xFF64748B),
+          fontSize: 10.0 * scale,
+          letterSpacing: 1.0,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'monospace',
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    unitTp.paint(canvas, Offset(cx - (unitTp.width / 2), cy - (rArc * 0.45)));
+
+    // 3. Menggambar Jarum (Needle) dengan Ekor/Titik Bawah Over ke Bawah
+    final double clampedCurrent = currentAmp.clamp(0.0, maxScale);
+    final double needleAngle = startAngle + (clampedCurrent / maxScale) * totalRange;
+
+    // Puncak jarum menyentuh batas skala dalam (r=305)
+    final pNeedleTip = polarToCartesian(cx, cy, 305.0 * scale, needleAngle);
+    // Base jarum ditarik panjang dari bawah poros melewati pusat (r = -150) agar over menembus ke bawah di belakang panel
+    final pNeedleBase = polarToCartesian(cx, cy, -150.0 * scale, needleAngle);
+
+    // Garis Utama Jarum Merah Tebal
+    final needlePaint = Paint()
+      ..color = const Color(0xFFEF4444)
+      ..strokeWidth = 2.4 * scale
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(pNeedleBase, pNeedleTip, needlePaint);
+
+    // Titik Indikator Merah Menyala di Dekat Ujung Jarum
+    final pDot = polarToCartesian(cx, cy, 260.0 * scale, needleAngle);
+    canvas.drawCircle(pDot, 5.0 * scale, Paint()..color = const Color(0xFFFF0033));
+    canvas.drawCircle(pDot, 2.5 * scale, Paint()..color = Colors.white.withOpacity(0.9));
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformSampWhiteGaugePainter oldDelegate) {
+    return oldDelegate.currentAmp != currentAmp;
+  }
+}
+
+/// Custom Painter: Dual Waveform Logic (Volt Hijau Kotak di Atas & Curr Kuning di Bawah)
+class _WaveformSampLogicPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    // Garis Grid Horizontal Tipis
+    final gridPaint = Paint()
+      ..color = Colors.white.withOpacity(0.08)
+      ..strokeWidth = 0.8;
+
+    for (int i = 0; i <= 5; i++) {
+      final y = size.height * (i / 5);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    // 1. Sinyal Atas: VOLT HIJAU (Gelombang Kotak Clock Rapat Simetris)
+    final voltPath = Path();
+    final double voltTopY = size.height * 0.08;
+    final double voltBottomY = size.height * 0.44;
+    const int voltCycles = 15;
+    final double stepX = size.width / (voltCycles * 2);
+
+    voltPath.moveTo(0, voltBottomY);
+    for (int i = 0; i < voltCycles; i++) {
+      final x1 = i * 2 * stepX;
+      final x2 = x1 + stepX;
+      final x3 = x2 + stepX;
+
+      voltPath.lineTo(x1, voltTopY);
+      voltPath.lineTo(x2, voltTopY);
+      voltPath.lineTo(x2, voltBottomY);
+      voltPath.lineTo(x3, voltBottomY);
+    }
+
+    final voltPaint = Paint()
+      ..color = const Color(0xFF39FF14)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    canvas.drawPath(voltPath, voltPaint);
+
+    // 2. Sinyal Bawah: CURR KUNING (Gelombang Pulsa Data Asimetris)
+    final currPath = Path();
+    final double currTopY = size.height * 0.52;
+    final double currBottomY = size.height * 0.90;
+
+    currPath.moveTo(0, currBottomY);
+
+    // Pola Pulsa Data
+    final pulses = [
+      {'high': true, 'w': 0.22},
+      {'high': false, 'w': 0.04},
+      {'high': true, 'w': 0.05},
+      {'high': false, 'w': 0.32},
+      {'high': true, 'w': 0.15},
+      {'high': false, 'w': 0.12},
+      {'high': true, 'w': 0.10},
+    ];
+
+    double currentX = 0;
+    for (final p in pulses) {
+      final bool isHigh = p['high'] as bool;
+      final double widthFrac = p['w'] as double;
+      final double pulseWidth = size.width * widthFrac;
+      final double targetY = isHigh ? currTopY : currBottomY;
+
+      currPath.lineTo(currentX, targetY);
+      currentX += pulseWidth;
+      currPath.lineTo(currentX, targetY);
+    }
+
+    final currPaint = Paint()
+      ..color = const Color(0xFFFFEB3B)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    canvas.drawPath(currPath, currPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformSampLogicPainter oldDelegate) => false;
+}
+
+/// Custom Painter Pengukur Arus Jarum Analog Default (Analog Ammeter Gauge)
+class _AnalogMeterGaugePainter extends CustomPainter {
+  final double currentAmp;
+  final double maxAmp;
+  final double ocpLimit;
+  final Color accentColor;
+
+  const _AnalogMeterGaugePainter({
+    required this.currentAmp,
+    required this.maxAmp,
+    required this.ocpLimit,
+    required this.accentColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final center = Offset(size.width / 2, size.height * 0.95);
+    final radius = math.min(size.width * 0.48, size.height * 0.88);
+
+    const startAngleDeg = 205.0;
+    const sweepAngleDeg = 130.0;
+    const startRad = startAngleDeg * (math.pi / 180.0);
+    const totalRad = sweepAngleDeg * (math.pi / 180.0);
+
+    final dialRect = Rect.fromCircle(center: center, radius: radius);
+    final dialBgPaint = Paint()
+      ..color = const Color(0xFF0D1117)
+      ..style = PaintingStyle.fill;
+    final dialArcPath = Path()
+      ..moveTo(center.dx, center.dy)
+      ..arcTo(dialRect, startRad, totalRad, false)
+      ..close();
+    canvas.drawPath(dialArcPath, dialBgPaint);
+
+    final trackPaint = Paint()
+      ..color = Colors.white24
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startRad,
+      totalRad,
+      false,
+      trackPaint,
+    );
+
+    final clampedOcp = ocpLimit.clamp(0.0, maxAmp);
+    final ocpFraction = clampedOcp / maxAmp;
+    final ocpStartRad = startRad + (totalRad * ocpFraction);
+    final ocpSweepRad = totalRad * (1.0 - ocpFraction);
+
+    if (ocpSweepRad > 0) {
+      final ocpPaint = Paint()
+        ..color = Colors.redAccent.withOpacity(0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        ocpStartRad,
+        ocpSweepRad,
+        false,
+        ocpPaint,
+      );
+    }
+
+    const totalDivisions = 50;
+    for (int i = 0; i <= totalDivisions; i++) {
+      final fraction = i / totalDivisions;
+      final angle = startRad + (totalRad * fraction);
+      final isMajor = (i % 10 == 0);
+      final isMedium = (i % 5 == 0 && !isMajor);
+
+      final tickLength = isMajor ? 9.0 : (isMedium ? 6.0 : 3.5);
+      final tickColor = (fraction * maxAmp > clampedOcp)
+          ? Colors.redAccent
+          : (isMajor ? accentColor : (isMedium ? Colors.white60 : Colors.white30));
+
+      final p1 = Offset(
+        center.dx + (radius - 2) * math.cos(angle),
+        center.dy + (radius - 2) * math.sin(angle),
+      );
+      final p2 = Offset(
+        center.dx + (radius - 2 - tickLength) * math.cos(angle),
+        center.dy + (radius - 2 - tickLength) * math.sin(angle),
+      );
+
+      final tickPaint = Paint()
+        ..color = tickColor
+        ..strokeWidth = isMajor ? 1.6 : (isMedium ? 1.1 : 0.7);
+
+      canvas.drawLine(p1, p2, tickPaint);
+
+      if (isMajor) {
+        final val = fraction * maxAmp;
+        final textSpan = TextSpan(
+          text: val.toStringAsFixed(1),
+          style: TextStyle(
+            color: tickColor,
+            fontSize: 8.0,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'monospace',
+          ),
+        );
+        final tp = TextPainter(
+          text: textSpan,
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final labelRadius = radius - 18.0;
+        final labelPos = Offset(
+          center.dx + labelRadius * math.cos(angle) - (tp.width / 2),
+          center.dy + labelRadius * math.sin(angle) - (tp.height / 2),
+        );
+        tp.paint(canvas, labelPos);
+      }
+    }
+
+    final unitSpan = const TextSpan(
+      text: 'AMPERE (MAX 1.0A)',
+      style: TextStyle(
+        color: Colors.white38,
+        fontSize: 7.0,
+        letterSpacing: 1.0,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'monospace',
+      ),
+    );
+    final unitTp = TextPainter(text: unitSpan, textDirection: TextDirection.ltr)..layout();
+    unitTp.paint(canvas, Offset(center.dx - (unitTp.width / 2), center.dy - (radius * 0.45)));
+
+    final clampedCurrent = currentAmp.clamp(0.0, maxAmp);
+    final currentFraction = clampedCurrent / maxAmp;
+    final needleAngle = startRad + (totalRad * currentFraction);
+
+    final needleLength = radius * 0.88;
+    final needleTip = Offset(
+      center.dx + needleLength * math.cos(needleAngle),
+      center.dy + needleLength * math.sin(needleAngle),
+    );
+
+    canvas.drawLine(
+      Offset(center.dx + 2, center.dy + 2),
+      Offset(needleTip.dx + 2, needleTip.dy + 2),
+      Paint()..color = Colors.black.withOpacity(0.5)..strokeWidth = 2.5..strokeCap = StrokeCap.round,
+    );
+
+    final isOverLimit = clampedCurrent >= clampedOcp;
+    final needleColor = isOverLimit ? Colors.redAccent : const Color(0xFFFF5252);
+    canvas.drawLine(center, needleTip, Paint()..color = needleColor..strokeWidth = 2.0..strokeCap = StrokeCap.round);
+
+    final tailTip = Offset(center.dx - 10 * math.cos(needleAngle), center.dy - 10 * math.sin(needleAngle));
+    canvas.drawLine(center, tailTip, Paint()..color = Colors.white54..strokeWidth = 2.2..strokeCap = StrokeCap.round);
+
+    canvas.drawCircle(center, 7.0, Paint()..color = const Color(0xFF1E2630));
+    canvas.drawCircle(center, 7.0, Paint()..color = accentColor..style = PaintingStyle.stroke..strokeWidth = 1.2);
+    canvas.drawCircle(center, 3.0, Paint()..color = needleColor);
+  }
+
+  @override
+  bool shouldRepaint(covariant _AnalogMeterGaugePainter oldDelegate) {
+    return oldDelegate.currentAmp != currentAmp ||
+        oldDelegate.maxAmp != maxAmp ||
+        oldDelegate.ocpLimit != ocpLimit ||
+        oldDelegate.accentColor != accentColor;
+  }
+}
+
+/// Custom Painter: Dark Dial Gauge 0 - 500 mA (Persis Script SVG HTML User)
+/// Menggunakan matematika polar-to-cartesian persis:
+/// cx = width/2, cy = height * 1.4137, startAngle = -46°, endAngle = 46°
+/// rArc = 295/290 * height, rTickMinor = 303, rTickMid = 309, rTickMajor = 317, rText = 342
+class _DarkAmmeterGaugePainter extends CustomPainter {
+  final double currentmA;
+
+  const _DarkAmmeterGaugePainter({
+    required this.currentmA,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final double targetWidth = size.width * 0.90;
+    final double scale = targetWidth / 495.0;
+
+    final double cx = size.width / 2.0;
+
+    final double rArc = 295.0 * scale;
+    final double rTickStart = 295.0 * scale;
+    final double rTickMinorEnd = 303.0 * scale;
+    final double rTickMidEnd = 309.0 * scale;
+    final double rTickMajorEnd = 317.0 * scale;
+    final double rText = 344.0 * scale;
+
+    // Kunci posisi teks teratas (200 & 300): pas tepat di bawah garis panel header (margin 18px)
+    // Tidak terlalu bawah, pas tepat di bawah header
+    final double cy = rText + 18.0;
+
+    const double startAngle = -46.0;
+    const double endAngle = 46.0;
+    const double totalRange = endAngle - startAngle;
+
+    // Helper: Polar to Cartesian (0 derajat di atas, searah jarum jam)
+    Offset polarToCartesian(double centerX, double centerY, double radius, double angleInDegrees) {
+      final double angleInRadians = (angleInDegrees - 90.0) * math.pi / 180.0;
+      return Offset(
+        centerX + (radius * math.cos(angleInRadians)),
+        centerY + (radius * math.sin(angleInRadians)),
+      );
+    }
+
+    // 1. Menggambar Garis Busur Utama (Arc)
+    // Dalam sudut radian biasa: startAngle - 90 dan totalRange
+    final double startRad = (startAngle - 90.0) * math.pi / 180.0;
+    final double sweepRad = totalRange * math.pi / 180.0;
+
+    final arcPaint = Paint()
+      ..color = const Color(0xFFD4D4D4)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5 * scale
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: rArc),
+      startRad,
+      sweepRad,
+      false,
+      arcPaint,
+    );
+
+    // 2. Menggambar Garis Ukur (Ticks) dan Angka Skala (0 s/d 500)
+    const int totalTicks = 50;
+    const double maxScale = 500.0;
+
+    for (int i = 0; i <= totalTicks; i++) {
+      final double angle = startAngle + (i / totalTicks) * totalRange;
+
+      final bool isMajor = (i % 10 == 0); // 0, 100, 200, 300, 400, 500
+      final bool isMid = (i % 5 == 0 && !isMajor); // 50, 150, 250, 350, 450
+
+      final double rEnd = isMajor ? rTickMajorEnd : (isMid ? rTickMidEnd : rTickMinorEnd);
+
+      final p1 = polarToCartesian(cx, cy, rTickStart, angle);
+      final p2 = polarToCartesian(cx, cy, rEnd, angle);
+
+      final tickPaint = Paint()
+        ..color = Colors.white
+        ..strokeWidth = (isMajor ? 2.5 : (isMid ? 1.8 : 1.2)) * scale
+        ..strokeCap = StrokeCap.round;
+
+      canvas.drawLine(p1, p2, tickPaint);
+
+      // Angka Skala Utama (0, 100, 200, 300, 400, 500) Diperbesar
+      if (isMajor) {
+        final int val = ((i / 10) * 100).toInt();
+        final pText = polarToCartesian(cx, cy, rText, angle);
+
+        final tp = TextPainter(
+          text: TextSpan(
+            text: '$val',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16.5 * scale, // Font angka diperbesar lebih tebal & jelas
+              fontWeight: FontWeight.w900,
+              fontFamily: 'monospace',
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        // Rotasi angka selaras sudut busur persis seperti di SVG
+        canvas.save();
+        canvas.translate(pText.dx, pText.dy);
+        canvas.rotate(angle * math.pi / 180.0);
+        tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+        canvas.restore();
+      }
+    }
+
+    // 3. Menggambar Jarum (Needle)
+    final double clampedValue = currentmA.clamp(0.0, maxScale);
+    final double needleAngle = startAngle + (clampedValue / maxScale) * totalRange;
+
+    // Puncak jarum menyentuh batas skala dalam (r=305)
+    final pNeedleTip = polarToCartesian(cx, cy, 305.0 * scale, needleAngle);
+    // Base jarum ditarik panjang dari bawah poros melewati pusat (r = -150) agar over menembus ke bawah belakang panel grafik
+    final pNeedleBase = polarToCartesian(cx, cy, -150.0 * scale, needleAngle);
+
+    final needlePaint = Paint()
+      ..color = const Color(0xFFF1F786) // Kuning neon persis HTML
+      ..strokeWidth = 2.4 * scale
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(pNeedleBase, pNeedleTip, needlePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DarkAmmeterGaugePainter oldDelegate) {
+    return oldDelegate.currentmA != currentmA;
+  }
+}
+
+/// Custom Painter: Plot Grid Garis Horizontal Halus untuk Curve Ammeter
+class _DarkCurveGraphPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.width <= 0 || size.height <= 0) return;
+
+    // Grid Horizontal
+    final gridPaint = Paint()
+      ..color = Colors.white.withOpacity(0.06)
+      ..strokeWidth = 0.8;
+
+    const int divisions = 11;
+    for (int i = 0; i <= divisions; i++) {
+      final y = size.height * (i / divisions);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DarkCurveGraphPainter oldDelegate) => false;
+}

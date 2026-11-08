@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Smart PSU v1.0.0 - Landscape Multimeter & Telemetry Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        dark: '#0f0f11',
+                        darker: '#08080a',
+                        card: '#131318',
+                        panel: '#18181f',
+                        neonRed: '#ff3344',
+                        neonOrange: '#ff8800',
+                        neonBlue: '#00e5ff',
+                        neonGreen: '#00ff66',
+                        neonYellow: '#ffdd00',
+                        neonPurple: '#bf5af2',
+                        textMuted: '#71717a',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'Consolas', 'monospace'],
+                        orbitron: ['Orbitron', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'neon-red': '0 0 8px rgba(255, 51, 68, 0.6), 0 0 20px rgba(255, 51, 68, 0.2)',
+                        'neon-orange': '0 0 8px rgba(255, 136, 0, 0.6), 0 0 20px rgba(255, 136, 0, 0.2)',
+                        'neon-blue': '0 0 8px rgba(0, 229, 255, 0.6), 0 0 20px rgba(0, 229, 255, 0.2)',
+                        'neon-green': '0 0 8px rgba(0, 255, 102, 0.6), 0 0 20px rgba(0, 255, 102, 0.2)',
+                        'neon-yellow': '0 0 8px rgba(255, 221, 0, 0.6), 0 0 20px rgba(255, 221, 0, 0.2)',
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;600;700;800&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #08080a; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #27272a; 
+            border-radius: 2px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #3f3f46; 
+        }
+
+        body {
+            background-color: #08080a;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior-y: contain; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .lcd-text {
+            font-family: 'JetBrains Mono', monospace;
+            text-shadow: 0 0 10px currentColor;
+        }
+
+        .panel-border-red {
+            border: 1px solid rgba(255, 51, 68, 0.4);
+            box-shadow: inset 0 0 12px rgba(255, 51, 68, 0.08);
+        }
+        
+        .panel-border-orange {
+            border: 1px solid rgba(255, 136, 0, 0.4);
+            box-shadow: inset 0 0 12px rgba(255, 136, 0, 0.08);
+        }
+
+        .panel-border-blue {
+            border: 1px solid rgba(0, 229, 255, 0.4);
+            box-shadow: inset 0 0 12px rgba(0, 229, 255, 0.08);
+        }
+
+        .panel-border-green {
+            border: 1px solid rgba(0, 255, 102, 0.4);
+            box-shadow: inset 0 0 12px rgba(0, 255, 102, 0.08);
+        }
+
+        .panel-border-yellow {
+            border: 1px solid rgba(255, 221, 0, 0.4);
+            box-shadow: inset 0 0 12px rgba(255, 221, 0, 0.08);
+        }
+
+        .nav-button {
+            transition: all 0.2s ease;
+        }
+        .nav-button.active {
+            color: #00e5ff;
+            text-shadow: 0 0 10px rgba(0, 229, 255, 0.8);
+            border-bottom: 2px solid #00e5ff;
+        }
+        .nav-button:not(.active) {
+            color: #71717a;
+        }
+        .nav-button:not(.active):hover {
+            color: #d4d4d8;
+        }
+
+        /* Animated pulse for Connection status */
+        @keyframes pulse-live {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.15); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .dot-live {
+            animation: pulse-live 1.8s infinite;
+        }
+
+        /* Scanlines background */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 3px;
+            pointer-events: none;
+            z-index: 99;
+            opacity: 0.2;
+        }
+
+        /* Switch Toggle Glowing */
+        .switch-glow-on {
+            box-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+            background: linear-gradient(135deg, rgba(0,229,255,0.2), rgba(0,229,255,0.05));
+            border-color: #00e5ff !important;
+        }
+        .switch-glow-relay1 {
+            box-shadow: 0 0 12px rgba(0, 255, 102, 0.5);
+            background: linear-gradient(135deg, rgba(0,255,102,0.2), rgba(0,255,102,0.05));
+            border-color: #00ff66 !important;
+        }
+        .switch-glow-relay2 {
+            box-shadow: 0 0 12px rgba(255, 221, 0, 0.5);
+            background: linear-gradient(135deg, rgba(255,221,0,0.2), rgba(255,221,0,0.05));
+            border-color: #ffdd00 !important;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col p-2 landscape:p-3 bg-darker">
+    <div class="scanlines"></div>
+
+    <!-- Top Status Bar (Ultra Compact for Landscape) -->
+    <header class="flex justify-between items-center mb-2 px-2 shrink-0 bg-panel/70 backdrop-blur rounded-lg border border-gray-800/80 py-1.5 shadow-md">
+        <!-- Logo & Branding -->
+        <div class="flex items-center gap-2">
+            <div class="bg-gradient-to-r from-neonRed to-red-600 px-2 py-0.5 rounded font-orbitron font-extrabold text-xs tracking-wider flex items-center gap-1 shadow-neon-red">
+                <i class="ph-bold ph-lightning text-yellow-300"></i>
+                <span>NURHADI</span>
+            </div>
+            <h1 class="text-white font-orbitron font-bold tracking-wider text-xs sm:text-sm flex items-center gap-1.5">
+                SMART PSU <span class="text-[10px] bg-darker text-neonBlue px-1.5 py-0.5 rounded border border-neonBlue/40 font-mono font-semibold">v1.0.0 PRO</span>
+            </h1>
+            <span class="hidden md:inline-block text-[10px] text-gray-400 font-mono border-l border-gray-700 pl-2">INA3221 + ADS1115</span>
+        </div>
+
+        <!-- Channels Quick Overview Pill -->
+        <div class="hidden lg:flex items-center gap-3 text-xs font-mono">
+            <div class="flex items-center gap-1 bg-darker/80 px-2 py-0.5 rounded border border-neonBlue/30 text-neonBlue">
+                <span class="text-[9px] text-gray-400">CH1(EXT):</span>
+                <span id="quick-v1" class="font-bold">0.00V</span>
+                <span id="quick-i1" class="text-gray-400 text-[10px]">0mA</span>
+            </div>
+            <div class="flex items-center gap-1 bg-darker/80 px-2 py-0.5 rounded border border-neonGreen/30 text-neonGreen">
+                <span class="text-[9px] text-gray-400">CH2(STEP):</span>
+                <span id="quick-v2" class="font-bold">0.00V</span>
+                <span id="quick-i2" class="text-gray-400 text-[10px]">0mA</span>
+            </div>
+            <div class="flex items-center gap-1 bg-darker/80 px-2 py-0.5 rounded border border-neonYellow/30 text-neonYellow">
+                <span class="text-[9px] text-gray-400">CH3(QC):</span>
+                <span id="quick-v3" class="font-bold">0.00V</span>
+                <span id="quick-i3" class="text-gray-400 text-[10px]">0mA</span>
+            </div>
+        </div>
+        
+        <!-- Connection Status, IP & Top Actions -->
+        <div class="flex items-center gap-2 text-xs">
+            <!-- Mode badge -->
+            <div class="bg-card border border-gray-700 text-neonOrange px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider" id="current-mode-display">
+                PSU MODE
+            </div>
+
+            <!-- ESP IP & Connection Status Button -->
+            <button onclick="openIpModal()" class="flex items-center gap-1.5 bg-darker hover:bg-gray-900 border border-gray-700 px-2.5 py-1 rounded transition-colors" title="Klik untuk ubah IP ESP">
+                <div id="status-dot" class="w-2 h-2 rounded-full bg-neonGreen dot-live shadow-[0_0_8px_#00ff66]"></div>
+                <span id="status-ip-text" class="text-[11px] font-mono text-gray-300 font-medium">192.168.4.1</span>
+                <span id="latency-text" class="text-[9px] text-neonBlue font-mono">0ms</span>
+            </button>
+
+            <!-- Test Connection Button -->
+            <button onclick="testConnection()" class="bg-gray-800/80 hover:bg-gray-700 text-neonGreen p-1.5 rounded transition-all border border-gray-700" title="Ping & Test ESP">
+                <i class="ph-bold ph-wifi-high text-sm"></i>
+            </button>
+
+            <!-- OTA Flash Dialog Button -->
+            <button onclick="openOtaModal()" class="bg-gray-800/80 hover:bg-gray-700 text-neonBlue p-1.5 rounded transition-all border border-gray-700" title="OTA Firmware Updater">
+                <i class="ph-bold ph-cloud-arrow-up text-sm"></i>
+            </button>
+
+            <!-- Fullscreen Toggle -->
+            <button onclick="toggleFullScreen()" class="bg-gray-800/80 hover:bg-gray-700 text-gray-300 p-1.5 rounded transition-all border border-gray-700" title="Fullscreen Mode">
+                <i class="ph-bold ph-arrows-out-simple text-sm"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Landscape Layout (Left Gauges + Right Graph/Controls) -->
+    <main class="flex-1 flex flex-row gap-2.5 min-h-0 overflow-hidden">
+        
+        <!-- LEFT PANEL: Multi-Channel Digital Meters & Hardware Controls (38% width on landscape) -->
+        <section class="flex flex-col gap-2 w-[40%] xl:w-[36%] shrink-0 h-full overflow-y-auto pr-1">
+            
+            <!-- Channel Selector Tabs (CH1, CH2, CH3, ADS AVO) -->
+            <div class="grid grid-cols-4 gap-1 p-1 bg-panel/60 rounded-lg border border-gray-800/80 shrink-0">
+                <button id="tab-ch1" onclick="selectChannel(1)" class="py-1 text-center rounded text-[11px] font-orbitron font-bold transition-all bg-neonBlue/20 text-neonBlue border border-neonBlue/50 shadow-neon-blue">
+                    CH1
+                </button>
+                <button id="tab-ch2" onclick="selectChannel(2)" class="py-1 text-center rounded text-[11px] font-orbitron font-bold transition-all text-gray-400 hover:text-white">
+                    CH2
+                </button>
+                <button id="tab-ch3" onclick="selectChannel(3)" class="py-1 text-center rounded text-[11px] font-orbitron font-bold transition-all text-gray-400 hover:text-white">
+                    CH3
+                </button>
+                <button id="tab-avo" onclick="selectChannel(4)" class="py-1 text-center rounded text-[11px] font-orbitron font-bold transition-all text-gray-400 hover:text-white">
+                    AVO
+                </button>
+            </div>
+
+            <!-- PRIMARY STATS: Selected Channel Voltage & Current (Big Neon Multimeter LCD) -->
+            <div class="grid grid-cols-2 gap-2 shrink-0">
+                <!-- ARUS (Current) -->
+                <div class="bg-panel rounded-lg p-2.5 panel-border-orange flex flex-col justify-between relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 w-8 h-8 bg-neonOrange/10 rounded-bl-full border-l border-b border-neonOrange/30"></div>
+                    <div class="flex justify-between items-center z-10">
+                        <span class="text-neonOrange text-[10px] font-bold tracking-wider uppercase font-orbitron">ARUS</span>
+                        <span id="active-ch-badge-i" class="text-[9px] bg-darker text-neonOrange px-1.5 py-0.2 rounded border border-neonOrange/40 font-mono">CH1 EXT</span>
+                    </div>
+                    <div class="flex items-baseline justify-center my-1 z-10">
+                        <span class="lcd-text text-3xl sm:text-4xl text-neonOrange font-bold tracking-tighter" id="val-current">0.000</span>
+                        <span class="text-neonOrange ml-1 text-sm font-bold font-mono">A</span>
+                    </div>
+                    <div class="flex justify-between text-[9px] text-gray-400 font-mono z-10">
+                        <span>MA: <b id="val-current-ma" class="text-gray-200">0</b> mA</span>
+                        <span>SHNT: <b class="text-gray-300">0.1Ω</b></span>
+                    </div>
+                </div>
+
+                <!-- TEGANGAN (Voltage) -->
+                <div class="bg-panel rounded-lg p-2.5 panel-border-yellow flex flex-col justify-between relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-8 h-8 bg-neonYellow/10 rounded-bl-full border-l border-b border-neonYellow/30"></div>
+                    <div class="flex justify-between items-center z-10">
+                        <span class="text-neonYellow text-[10px] font-bold tracking-wider uppercase font-orbitron">TEGANGAN</span>
+                        <span id="active-ch-badge-v" class="text-[9px] bg-darker text-neonYellow px-1.5 py-0.2 rounded border border-neonYellow/40 font-mono">CH1 EXT</span>
+                    </div>
+                    <div class="flex items-baseline justify-center my-1 z-10">
+                        <span class="lcd-text text-3xl sm:text-4xl text-neonYellow font-bold tracking-tighter" id="val-voltage">0.00</span>
+                        <span class="text-neonYellow ml-1 text-sm font-bold font-mono">V</span>
+                    </div>
+                    <div class="flex justify-between text-[9px] text-gray-400 font-mono z-10">
+                        <span>BUS: <b id="val-bus-status" class="text-neonGreen">ACTIVE</b></span>
+                        <span>MAX: <b class="text-gray-300">26.0V</b></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECONDARY STATS: Power & Capacity / Energy -->
+            <div class="grid grid-cols-2 gap-2 shrink-0">
+                <!-- DAYA (Power) -->
+                <div class="bg-panel rounded-lg p-2 panel-border-red flex flex-col justify-between">
+                    <span class="text-neonRed text-[10px] font-bold tracking-wider uppercase font-orbitron">DAYA AKTIF</span>
+                    <div class="flex items-baseline justify-center my-0.5">
+                        <span class="lcd-text text-2xl sm:text-3xl text-neonRed font-bold tracking-tighter" id="val-power">0.00</span>
+                        <span class="text-neonRed ml-1 text-xs font-bold font-mono">W</span>
+                    </div>
+                    <div class="text-[9px] text-gray-400 font-mono text-center">P = V × I</div>
+                </div>
+
+                <!-- KAPASITAS / ENERGY -->
+                <div class="bg-panel rounded-lg p-2 panel-border-blue flex flex-col justify-between">
+                    <div class="flex justify-between items-center">
+                        <span class="text-neonBlue text-[10px] font-bold tracking-wider uppercase font-orbitron">KAPASITAS</span>
+                        <button onclick="resetCapacity()" class="text-gray-400 hover:text-white text-[9px] font-mono" title="Reset Energy & Capacity">
+                            <i class="ph-bold ph-arrow-counter-clockwise"></i>
+                        </button>
+                    </div>
+                    <div class="flex items-baseline justify-center my-0.5">
+                        <span class="lcd-text text-2xl sm:text-3xl text-neonBlue font-bold tracking-tighter" id="val-capacity">0</span>
+                        <span class="text-neonBlue ml-1 text-xs font-bold font-mono">mAh</span>
+                    </div>
+                    <div class="text-[9px] text-gray-400 font-mono text-center">
+                        ENERGY: <span id="val-energy" class="text-gray-200">0.0</span> mWh
+                    </div>
+                </div>
+            </div>
+
+            <!-- DATA LINES: ADS1115 & QC MONITORING (AVO Multitester, D+, D-, Protocol) -->
+            <div class="bg-panel rounded-lg p-2 panel-border-orange shrink-0">
+                <div class="text-[9px] text-gray-400 font-orbitron font-bold uppercase mb-1.5 flex justify-between">
+                    <span>ADS1115 16-BIT ADC / QC PROBE</span>
+                    <span id="val-qc-protocol" class="text-neonGreen font-mono font-bold">NORMAL 5V</span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-darker p-1.5 rounded border border-gray-800">
+                        <span class="text-gray-400 text-[10px] block font-semibold">AVO PROBE</span>
+                        <span class="lcd-text text-neonRed text-sm font-bold block" id="val-avo">0.00V</span>
+                    </div>
+                    <div class="bg-darker p-1.5 rounded border border-gray-800">
+                        <span class="text-gray-400 text-[10px] block font-semibold">QC D+</span>
+                        <span class="lcd-text text-neonBlue text-sm font-bold block" id="val-dp">0.00V</span>
+                    </div>
+                    <div class="bg-darker p-1.5 rounded border border-gray-800">
+                        <span class="text-gray-400 text-[10px] block font-semibold">QC D-</span>
+                        <span class="lcd-text text-neonYellow text-sm font-bold block" id="val-dm">0.00V</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HARDWARE OUTPUT CONTROLS (MOSFET, RELAY 1, RELAY 2) -->
+            <div class="bg-panel rounded-lg p-2 border border-gray-800 shrink-0">
+                <div class="flex justify-between items-center mb-1.5">
+                    <span class="text-[9px] text-gray-300 font-orbitron font-bold uppercase">HARDWARE SWITCH CONTROLS</span>
+                    <button onclick="toggleAllSwitches()" class="text-[9px] font-mono bg-darker hover:bg-gray-800 px-2 py-0.5 rounded border border-gray-700 text-gray-300">
+                        MASTER TOGGLE
+                    </button>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5">
+                    <!-- MOSFET SWITCH -->
+                    <button id="btn-mosfet" onclick="toggleSwitch('mosfet')" class="flex flex-col items-center justify-center p-2 rounded-lg border border-gray-700 bg-darker transition-all hover:scale-[1.02] active:scale-95">
+                        <i class="ph-bold ph-power text-xl text-gray-500 mb-0.5" id="icon-mosfet"></i>
+                        <span class="text-[10px] font-bold font-orbitron text-gray-300">MOSFET</span>
+                        <span class="text-[8px] font-mono font-bold text-gray-500" id="state-mosfet">OFF</span>
+                    </button>
+
+                    <!-- RELAY 1 SWITCH -->
+                    <button id="btn-relay1" onclick="toggleSwitch('relay1')" class="flex flex-col items-center justify-center p-2 rounded-lg border border-gray-700 bg-darker transition-all hover:scale-[1.02] active:scale-95">
+                        <i class="ph-bold ph-toggle-left text-xl text-gray-500 mb-0.5" id="icon-relay1"></i>
+                        <span class="text-[10px] font-bold font-orbitron text-gray-300">RELAY 1</span>
+                        <span class="text-[8px] font-mono font-bold text-gray-500" id="state-relay1">OFF (CH1)</span>
+                    </button>
+
+                    <!-- RELAY 2 SWITCH -->
+                    <button id="btn-relay2" onclick="toggleSwitch('relay2')" class="flex flex-col items-center justify-center p-2 rounded-lg border border-gray-700 bg-darker transition-all hover:scale-[1.02] active:scale-95">
+                        <i class="ph-bold ph-toggle-left text-xl text-gray-500 mb-0.5" id="icon-relay2"></i>
+                        <span class="text-[10px] font-bold font-orbitron text-gray-300">RELAY 2</span>
+                        <span class="text-[8px] font-mono font-bold text-gray-500" id="state-relay2">OFF (CH2)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ACTION BUTTON: MULAI ANALISA / RECORDING -->
+            <button id="btn-analyze" onclick="toggleLiveAnalysis()" class="mt-auto bg-transparent border border-neonOrange text-neonOrange hover:bg-neonOrange/10 rounded-lg py-2.5 flex items-center justify-center gap-2 font-bold font-orbitron text-xs transition-all active:scale-95 shadow-[0_0_10px_rgba(255,136,0,0.2)] shrink-0">
+                <i class="ph-bold ph-caret-double-right text-base" id="analyze-icon"></i>
+                <span id="btn-analyze-text">MULAI ANALISA LIVE</span>
+            </button>
+        </section>
+
+        <!-- RIGHT PANEL: Live Oscilloscope / Graph & Navigation (60% width on landscape) -->
+        <section class="flex-1 flex flex-col bg-panel rounded-lg panel-border-blue min-h-0 relative overflow-hidden">
+            
+            <!-- Top Navigation Modes Bar -->
+            <nav class="flex justify-between items-center px-3 py-1.5 border-b border-gray-800 bg-darker/60 shrink-0">
+                <div class="flex gap-4 sm:gap-6 items-center">
+                    <button class="nav-button active flex flex-col items-center gap-0.5 group" onclick="switchMode('PSU', this)">
+                        <i class="ph-bold ph-lightning text-lg group-hover:-translate-y-0.5 transition-transform"></i>
+                        <span class="text-[9px] font-bold font-orbitron tracking-wider">PSU</span>
+                    </button>
+                    <button class="nav-button flex flex-col items-center gap-0.5 group" onclick="switchMode('USB', this)">
+                        <i class="ph-bold ph-usb text-lg group-hover:-translate-y-0.5 transition-transform"></i>
+                        <span class="text-[9px] font-bold font-orbitron tracking-wider">USB/QC</span>
+                    </button>
+                    <button class="nav-button flex flex-col items-center gap-0.5 group" onclick="switchMode('PROBE', this)">
+                        <i class="ph-bold ph-needle text-lg group-hover:-translate-y-0.5 transition-transform"></i>
+                        <span class="text-[9px] font-bold font-orbitron tracking-wider">PROBE</span>
+                    </button>
+                    <button class="nav-button flex flex-col items-center gap-0.5 group" onclick="switchMode('WAVE', this)">
+                        <i class="ph-bold ph-wave-sine text-lg group-hover:-translate-y-0.5 transition-transform"></i>
+                        <span class="text-[9px] font-bold font-orbitron tracking-wider">WAVE</span>
+                    </button>
+                    <button class="nav-button flex flex-col items-center gap-0.5 group" onclick="switchMode('TERMINAL', this)">
+                        <i class="ph-bold ph-terminal-window text-lg group-hover:-translate-y-0.5 transition-transform"></i>
+                        <span class="text-[9px] font-bold font-orbitron tracking-wider">TERMINAL</span>
+                    </button>
+                    <button class="nav-button flex flex-col items-center gap-0.5 group" onclick="openIpModal()">
+                        <i class="ph-bold ph-gear text-lg group-hover:rotate-45 transition-transform duration-300"></i>
+                        <span class="text-[9px] font-bold font-orbitron tracking-wider">SET</span>
+                    </button>
+                </div>
+
+                <!-- Right Side Live Telemetry Rate & WiFi Signal -->
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-1.5 text-neonGreen font-mono text-[10px] font-bold">
+                        <i class="ph-bold ph-broadcast text-sm dot-live"></i>
+                        <span id="polling-rate-text">100ms (10Hz)</span>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Graph Filter Controls Bar -->
+            <div class="flex justify-between items-center px-3 py-1.5 border-b border-gray-800/80 bg-card/40 shrink-0">
+                <!-- Metric Selector Buttons -->
+                <div class="flex gap-2 items-center">
+                    <span class="text-[10px] font-orbitron text-gray-400 uppercase font-semibold">METRIC:</span>
+                    <button id="metric-arus" onclick="selectGraphMetric('ARUS')" class="text-[11px] font-orbitron font-bold text-white bg-neonOrange px-2.5 py-0.5 rounded-full shadow-neon-orange transition-all">
+                        ARUS
+                    </button>
+                    <button id="metric-volt" onclick="selectGraphMetric('VOLT')" class="text-[11px] font-orbitron font-bold text-gray-400 hover:text-white px-2.5 py-0.5 rounded-full transition-all">
+                        VOLT
+                    </button>
+                    <button id="metric-daya" onclick="selectGraphMetric('DAYA')" class="text-[11px] font-orbitron font-bold text-gray-400 hover:text-white px-2.5 py-0.5 rounded-full transition-all">
+                        DAYA
+                    </button>
+                    <button id="metric-all" onclick="selectGraphMetric('ALL')" class="text-[11px] font-orbitron font-bold text-gray-400 hover:text-white px-2.5 py-0.5 rounded-full transition-all">
+                        ALL CH
+                    </button>
+                </div>
+
+                <!-- Graph Utilities (Pause, Clear, Scale) -->
+                <div class="flex items-center gap-2">
+                    <span id="trigger-label" class="text-[10px] text-neonBlue font-mono font-bold border border-neonBlue/40 bg-neonBlue/10 px-2 py-0.5 rounded">
+                        CH1: 0-30V / 0-5A
+                    </span>
+                    <button id="btn-pause-chart" onclick="togglePauseChart()" class="bg-gray-800/80 hover:bg-gray-700 p-1 rounded text-neonBlue border border-gray-700 transition-colors" title="Pause / Resume Live Waveform">
+                        <i class="ph-bold ph-pause" id="icon-pause"></i>
+                    </button>
+                    <button onclick="resetChart()" class="bg-gray-800/80 hover:bg-gray-700 p-1 rounded text-neonOrange border border-gray-700 transition-colors" title="Clear Waveform">
+                        <i class="ph-bold ph-arrow-counter-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Graph Canvas Container -->
+            <div class="flex-1 relative p-2 min-h-0 w-full" id="chart-container">
+                <canvas id="liveChart"></canvas>
+                
+                <!-- On-Graph Statistics Overlay (Bottom Right) -->
+                <div class="absolute bottom-3 right-4 bg-darker/80 backdrop-blur border border-gray-800/80 p-2 rounded-lg text-[10px] font-mono grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 text-right shadow-lg pointer-events-none">
+                    <span class="text-neonGreen font-bold">PEAK</span>
+                    <span class="text-white font-bold" id="stat-peak">0.000 A</span>
+                    
+                    <span class="text-gray-400 font-bold">AVG</span>
+                    <span class="text-white font-bold" id="stat-avg">0.000 A</span>
+                    
+                    <span class="text-neonBlue font-bold">MIN</span>
+                    <span class="text-white font-bold" id="stat-min">0.000 A</span>
+
+                    <span class="text-neonYellow font-bold">ENERGY</span>
+                    <span class="text-white font-bold" id="stat-energy">0.0 mWh</span>
+                </div>
+            </div>
+
+            <!-- Embedded Terminal Container (Hidden by default, shown in TERMINAL mode) -->
+            <div id="terminal-view" class="hidden absolute inset-0 bg-darker/95 z-20 flex flex-col p-3">
+                <div class="flex justify-between items-center pb-2 border-b border-gray-800">
+                    <div class="flex items-center gap-2">
+                        <i class="ph-bold ph-terminal text-neonGreen text-lg"></i>
+                        <span class="font-orbitron font-bold text-xs text-white">SMART PSU SERIAL CONSOLE</span>
+                    </div>
+                    <button onclick="closeTerminal()" class="text-gray-400 hover:text-white">
+                        <i class="ph-bold ph-x text-lg"></i>
+                    </button>
+                </div>
+                <div id="terminal-logs" class="flex-1 overflow-y-auto font-mono text-xs text-green-400 p-2 bg-black/60 rounded my-2 space-y-1">
+                    <div>[SYSTEM] Smart PSU v1.0.0 Web Console initialized.</div>
+                    <div>[SYSTEM] Connected to ESP HTTP REST API endpoints.</div>
+                </div>
+                <div class="flex gap-2">
+                    <input type="text" id="terminal-input" placeholder="Ketik perintah (contoh: mosfet on, relay1 on, ping, status)..." 
+                           class="flex-1 bg-dark font-mono text-xs px-3 py-2 rounded border border-gray-700 text-white focus:outline-none focus:border-neonGreen"
+                           onkeydown="if(event.key === 'Enter') sendTerminalCmd()">
+                    <button onclick="sendTerminalCmd()" class="bg-neonGreen hover:bg-green-500 text-black font-orbitron font-bold text-xs px-4 py-2 rounded">
+                        KIRIM
+                    </button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modal: Pengaturan IP ESP & Parameter -->
+    <div id="modal-ip" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-panel border border-neonBlue rounded-xl p-5 w-full max-w-md shadow-[0_0_30px_rgba(0,229,255,0.2)]">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-orbitron font-bold text-sm text-neonBlue flex items-center gap-2">
+                    <i class="ph-bold ph-gear"></i> PENGATURAN KONEKSI ESP
+                </h3>
+                <button onclick="closeIpModal()" class="text-gray-400 hover:text-white">
+                    <i class="ph-bold ph-x text-lg"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-3 font-mono text-xs">
+                <div>
+                    <label class="block text-gray-400 mb-1">IP / HOSTNAME ESP (Default: 192.168.4.1 atau smartpsu.local):</label>
+                    <input type="text" id="input-esp-ip" value="192.168.4.1" class="w-full bg-darker border border-gray-700 rounded px-3 py-2 text-white font-mono focus:border-neonBlue focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-gray-400 mb-1">POLLING INTERVAL (ms):</label>
+                    <input type="number" id="input-interval" value="100" min="50" max="2000" class="w-full bg-darker border border-gray-700 rounded px-3 py-2 text-white font-mono focus:border-neonBlue focus:outline-none">
+                </div>
+                <div class="flex items-center gap-2 pt-2">
+                    <input type="checkbox" id="input-demo-mode" class="rounded bg-darker border-gray-700 text-neonOrange">
+                    <label for="input-demo-mode" class="text-gray-300">Gunakan Mode Simulasi (Jika ESP belum terhubung)</label>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 mt-5">
+                <button onclick="closeIpModal()" class="px-4 py-2 rounded bg-gray-800 text-gray-300 font-orbitron text-xs">BATAL</button>
+                <button onclick="saveIpSettings()" class="px-4 py-2 rounded bg-neonBlue text-black font-orbitron font-bold text-xs shadow-neon-blue">SIMPAN</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: OTA Firmware Upload -->
+    <div id="modal-ota" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-panel border border-neonRed rounded-xl p-5 w-full max-w-md shadow-[0_0_30px_rgba(255,51,68,0.2)]">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-orbitron font-bold text-sm text-neonRed flex items-center gap-2">
+                    <i class="ph-bold ph-cloud-arrow-up"></i> OTA FIRMWARE FLASH
+                </h3>
+                <button onclick="closeOtaModal()" class="text-gray-400 hover:text-white">
+                    <i class="ph-bold ph-x text-lg"></i>
+                </button>
+            </div>
+            
+            <p class="text-xs text-gray-300 font-mono mb-4">
+                Upload file binary (.bin) hasil compile Arduino IDE untuk flash ESP secara nirkabel (Wireless).
+            </p>
+
+            <form id="ota-form" method="POST" enctype="multipart/form-data" class="space-y-3 font-mono text-xs">
+                <div class="border-2 border-dashed border-gray-700 rounded-lg p-4 text-center hover:border-neonRed transition-colors">
+                    <input type="file" id="ota-file-input" name="update" accept=".bin" class="hidden" onchange="updateOtaFilename(this)">
+                    <label for="ota-file-input" class="cursor-pointer flex flex-col items-center gap-2">
+                        <i class="ph-bold ph-file-code text-2xl text-neonRed"></i>
+                        <span id="ota-file-label" class="text-gray-400">Pilih File firmware.bin</span>
+                    </label>
+                </div>
+                <div id="ota-progress-container" class="hidden">
+                    <div class="w-full bg-gray-800 rounded-full h-2">
+                        <div id="ota-progress-bar" class="bg-neonRed h-2 rounded-full w-0 transition-all"></div>
+                    </div>
+                    <span id="ota-status-text" class="text-[10px] text-gray-400 mt-1 block text-center">Mengunggah...</span>
+                </div>
+            </form>
+
+            <div class="flex justify-end gap-2 mt-5">
+                <button onclick="closeOtaModal()" class="px-4 py-2 rounded bg-gray-800 text-gray-300 font-orbitron text-xs">TUTUP</button>
+                <button onclick="startOtaUpload()" class="px-4 py-2 rounded bg-neonRed text-white font-orbitron font-bold text-xs shadow-neon-red">FLASH FIRMWARE</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // --- State Management ---
+        let espIp = localStorage.getItem('smartpsu_esp_ip') || '192.168.4.1';
+        let pollingIntervalMs = parseInt(localStorage.getItem('smartpsu_interval') || '100');
+        let isDemoMode = localStorage.getItem('smartpsu_demo') === 'true';
+        let isAnalyzing = true;
+        let isChartPaused = false;
+        let selectedChannel = 1; // 1: CH1, 2: CH2, 3: CH3, 4: AVO
+        let currentGraphMetric = 'ARUS'; // 'ARUS', 'VOLT', 'DAYA', 'ALL'
+        let currentMode = 'PSU'; // 'PSU', 'USB', 'PROBE', 'WAVE', 'TERMINAL'
+
+        // Hardware state
+        let telemetry = {
+            v1: 0.0, i1: 0.0,
+            v2: 0.0, i2: 0.0,
+            v3: 0.0, i3: 0.0,
+            dm: 0.0, dp: 0.0, avo: 0.0,
+            m: 0, r1: 0, r2: 0
+        };
+
+        // Energy & Capacity integration
+        let totalCapacityMah = 0.0;
+        let totalEnergyMwh = 0.0;
+        let lastTimestamp = Date.now();
+
+        // Chart Data Buffers (100 sample points)
+        const MAX_DATA_POINTS = 100;
+        let dataPoints = Array(MAX_DATA_POINTS).fill(0.0);
+        let chartInstance = null;
+        let pollingTimer = null;
+
+        // Peak / Min / Avg trackers
+        let peakVal = 0.0;
+        let minVal = 999.0;
+        let sumVal = 0.0;
+        let countVal = 0;
+
+        // --- Chart Setup with Cyberpunk Glowing Lines ---
+        const ctx = document.getElementById('liveChart').getContext('2d');
+
+        // Custom Horizontal Threshold Plugin
+        const horizontalLinePlugin = {
+            id: 'horizontalLine',
+            beforeDraw: (chart) => {
+                const { ctx, chartArea: { left, right }, scales: { y } } = chart;
+                if (!y) return;
+                
+                // Draw target guideline
+                const targetY = (currentGraphMetric === 'VOLT') ? 5.0 : 1.0;
+                const yPos = y.getPixelForValue(targetY);
+                
+                ctx.save();
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 4]);
+                ctx.moveTo(left, yPos);
+                ctx.lineTo(right, yPos);
+                ctx.stroke();
+                ctx.restore();
+            }
+        };
+
+        Chart.register(horizontalLinePlugin);
+
+        function initChart() {
+            const initialLabels = Array.from({length: MAX_DATA_POINTS}, (_, i) => i);
+            
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: initialLabels,
+                    datasets: [{
+                        label: 'Live Telemetry',
+                        data: dataPoints,
+                        borderColor: '#ff8800',
+                        backgroundColor: 'rgba(255, 136, 0, 0.12)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        fill: true,
+                        tension: 0.15
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            enabled: true,
+                            backgroundColor: 'rgba(15, 15, 17, 0.95)',
+                            titleColor: '#fff',
+                            bodyColor: '#ff8800',
+                            borderColor: '#374151',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function(context) {
+                                    const unit = (currentGraphMetric === 'VOLT') ? ' V' : (currentGraphMetric === 'DAYA' ? ' W' : ' A');
+                                    return context.parsed.y.toFixed(3) + unit;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: {
+                            display: true,
+                            position: 'left',
+                            grid: {
+                                color: 'rgba(55, 65, 81, 0.25)',
+                                drawBorder: false,
+                            },
+                            ticks: {
+                                color: '#71717a',
+                                font: { family: 'JetBrains Mono', size: 9 },
+                                callback: function(value) { return value.toFixed(1); },
+                                maxTicksLimit: 6
+                            },
+                            min: 0,
+                            suggestedMax: 3.0
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Data Fetching & Real-time Loop ---
+        async function fetchTelemetry() {
+            if (!isAnalyzing) return;
+
+            const now = Date.now();
+            const dtHours = (now - lastTimestamp) / 3600000.0;
+            lastTimestamp = now;
+
+            if (isDemoMode) {
+                // Generate realistic simulated data
+                simulateData(dtHours);
+            } else {
+                const startTime = performance.now();
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 800);
+
+                    const res = await fetch(`http://${espIp}/data`, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+
+                    if (res.ok) {
+                        const json = await res.json();
+                        const latency = Math.round(performance.now() - startTime);
+                        document.getElementById('latency-text').innerText = `${latency}ms`;
+                        updateHardwareState(json, dtHours);
+                        setConnectionStatus(true);
+                    } else {
+                        throw new Error('HTTP Error');
+                    }
+                } catch (err) {
+                    document.getElementById('latency-text').innerText = 'TIMEOUT';
+                    setConnectionStatus(false);
+                    // Fallback to demo mode simulation gracefully so UI keeps live feeling
+                    simulateData(dtHours);
+                }
+            }
+
+            updateUI();
+        }
+
+        function setConnectionStatus(online) {
+            const dot = document.getElementById('status-dot');
+            const ipText = document.getElementById('status-ip-text');
+            if (online) {
+                dot.className = 'w-2 h-2 rounded-full bg-neonGreen dot-live shadow-[0_0_8px_#00ff66]';
+                ipText.innerText = espIp;
+                ipText.classList.remove('text-red-400');
+                ipText.classList.add('text-green-400');
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-neonRed shadow-[0_0_8px_#ff3344]';
+                ipText.innerText = isDemoMode ? `DEMO [${espIp}]` : `OFFLINE [${espIp}]`;
+                ipText.classList.remove('text-green-400');
+                ipText.classList.add('text-red-400');
+            }
+        }
+
+        function simulateData(dtHours) {
+            // Generate nice fluctuating waveforms
+            const baseV = selectedChannel === 1 ? 12.0 : (selectedChannel === 2 ? 5.0 : 9.0);
+            const baseI = selectedChannel === 1 ? 1.25 : (selectedChannel === 2 ? 0.85 : 1.65);
+
+            telemetry.v1 = +(12.0 + (Math.sin(Date.now() / 1500) * 0.15) + (Math.random() * 0.05)).toFixed(2);
+            telemetry.i1 = +(1250 + (Math.cos(Date.now() / 1200) * 120) + (Math.random() * 20)).toFixed(1);
+
+            telemetry.v2 = +(5.02 + (Math.sin(Date.now() / 2000) * 0.08) + (Math.random() * 0.02)).toFixed(2);
+            telemetry.i2 = +(850 + (Math.cos(Date.now() / 1800) * 80) + (Math.random() * 15)).toFixed(1);
+
+            telemetry.v3 = +(9.10 + (Math.sin(Date.now() / 1000) * 0.1) + (Math.random() * 0.04)).toFixed(2);
+            telemetry.i3 = +(1650 + (Math.cos(Date.now() / 1400) * 150) + (Math.random() * 30)).toFixed(1);
+
+            telemetry.dm = +(0.60 + Math.random() * 0.02).toFixed(2);
+            telemetry.dp = +(3.30 + Math.random() * 0.03).toFixed(2);
+            telemetry.avo = +(4.98 + Math.random() * 0.04).toFixed(2);
+
+            integrateEnergy(dtHours);
+        }
+
+        function updateHardwareState(json, dtHours) {
+            telemetry.v1 = json.v1 || 0.0;
+            telemetry.i1 = json.i1 || 0.0;
+            telemetry.v2 = json.v2 || 0.0;
+            telemetry.i2 = json.i2 || 0.0;
+            telemetry.v3 = json.v3 || 0.0;
+            telemetry.i3 = json.i3 || 0.0;
+            telemetry.dm = json.dm || 0.0;
+            telemetry.dp = json.dp || 0.0;
+            telemetry.avo = json.avo || 0.0;
+            telemetry.m = json.m || 0;
+            telemetry.r1 = json.r1 || 0;
+            telemetry.r2 = json.r2 || 0;
+
+            integrateEnergy(dtHours);
+        }
+
+        function integrateEnergy(dtHours) {
+            let activeCurrentMa = (selectedChannel === 1) ? telemetry.i1 : (selectedChannel === 2 ? telemetry.i2 : telemetry.i3);
+            let activeVoltage = (selectedChannel === 1) ? telemetry.v1 : (selectedChannel === 2 ? telemetry.v2 : telemetry.v3);
+            if (selectedChannel === 4) {
+                activeVoltage = telemetry.avo;
+                activeCurrentMa = 0;
+            }
+
+            const currentAmp = activeCurrentMa / 1000.0;
+            const powerWatts = activeVoltage * currentAmp;
+
+            totalCapacityMah += (activeCurrentMa * dtHours);
+            totalEnergyMwh += (powerWatts * 1000.0 * dtHours);
+        }
+
+        // --- UI Rendering Updates ---
+        function updateUI() {
+            // Top quick badges
+            document.getElementById('quick-v1').innerText = `${telemetry.v1.toFixed(2)}V`;
+            document.getElementById('quick-i1').innerText = `${telemetry.i1.toFixed(0)}mA`;
+            document.getElementById('quick-v2').innerText = `${telemetry.v2.toFixed(2)}V`;
+            document.getElementById('quick-i2').innerText = `${telemetry.i2.toFixed(0)}mA`;
+            document.getElementById('quick-v3').innerText = `${telemetry.v3.toFixed(2)}V`;
+            document.getElementById('quick-i3').innerText = `${telemetry.i3.toFixed(0)}mA`;
+
+            // Active channel metrics
+            let v = telemetry.v1, iMa = telemetry.i1;
+            let chName = 'CH1 EXT';
+            if (selectedChannel === 2) { v = telemetry.v2; iMa = telemetry.i2; chName = 'CH2 STEP'; }
+            else if (selectedChannel === 3) { v = telemetry.v3; iMa = telemetry.i3; chName = 'CH3 QC'; }
+            else if (selectedChannel === 4) { v = telemetry.avo; iMa = 0.0; chName = 'AVO DIGITAL'; }
+
+            const currentA = iMa / 1000.0;
+            const powerW = v * currentA;
+
+            document.getElementById('val-voltage').innerText = v.toFixed(2);
+            document.getElementById('val-current').innerText = currentA.toFixed(3);
+            document.getElementById('val-current-ma').innerText = iMa.toFixed(0);
+            document.getElementById('val-power').innerText = powerW.toFixed(2);
+
+            document.getElementById('val-capacity').innerText = Math.floor(totalCapacityMah).toString();
+            document.getElementById('val-energy').innerText = totalEnergyMwh.toFixed(1);
+
+            // ADS1115 Metrics
+            document.getElementById('val-avo').innerText = `${telemetry.avo.toFixed(2)}V`;
+            document.getElementById('val-dp').innerText = `${telemetry.dp.toFixed(2)}V`;
+            document.getElementById('val-dm').innerText = `${telemetry.dm.toFixed(2)}V`;
+
+            // QC Protocol Auto-Detection
+            detectQcProtocol(telemetry.dp, telemetry.dm, v);
+
+            // Switch states UI
+            updateSwitchBtn('mosfet', telemetry.m === 1, 'switch-glow-on', 'text-neonBlue', 'ON (ARMED)');
+            updateSwitchBtn('relay1', telemetry.r1 === 1, 'switch-glow-relay1', 'text-neonGreen', 'ON (CH1)');
+            updateSwitchBtn('relay2', telemetry.r2 === 1, 'switch-glow-relay2', 'text-neonYellow', 'ON (CH2)');
+
+            // Waveform update
+            if (!isChartPaused) {
+                let currentSample = currentA;
+                if (currentGraphMetric === 'VOLT') currentSample = v;
+                else if (currentGraphMetric === 'DAYA') currentSample = powerW;
+                
+                dataPoints.shift();
+                dataPoints.push(currentSample);
+
+                updateChart(currentSample);
+            }
+        }
+
+        function detectQcProtocol(dp, dm, v) {
+            const protoLabel = document.getElementById('val-qc-protocol');
+            if (dp > 3.0 && dm < 0.8 && v > 8.0) {
+                protoLabel.innerText = 'QC 3.0 / 9V';
+                protoLabel.className = 'text-neonOrange font-mono font-bold';
+            } else if (dp > 2.5 && dm > 2.5) {
+                protoLabel.innerText = 'APPLE 2.4A';
+                protoLabel.className = 'text-neonGreen font-mono font-bold';
+            } else if (dp > 0.5 && dm > 0.5 && Math.abs(dp - dm) < 0.3) {
+                protoLabel.innerText = 'DCP 1.5A';
+                protoLabel.className = 'text-neonBlue font-mono font-bold';
+            } else if (v > 11.0) {
+                protoLabel.innerText = 'QC 12V / PD';
+                protoLabel.className = 'text-neonYellow font-mono font-bold';
+            } else {
+                protoLabel.innerText = 'NORMAL 5V';
+                protoLabel.className = 'text-gray-400 font-mono font-bold';
+            }
+        }
+
+        function updateSwitchBtn(key, isOn, glowClass, activeTextColor, labelActive) {
+            const btn = document.getElementById(`btn-${key}`);
+            const icon = document.getElementById(`icon-${key}`);
+            const state = document.getElementById(`state-${key}`);
+
+            if (isOn) {
+                btn.classList.add(glowClass);
+                icon.className = `ph-bold ph-power text-xl ${activeTextColor} mb-0.5`;
+                state.innerText = labelActive;
+                state.className = `text-[8px] font-mono font-bold ${activeTextColor}`;
+            } else {
+                btn.classList.remove('switch-glow-on', 'switch-glow-relay1', 'switch-glow-relay2');
+                icon.className = 'ph-bold ph-power text-xl text-gray-500 mb-0.5';
+                state.innerText = 'OFF';
+                state.className = 'text-[8px] font-mono font-bold text-gray-500';
+            }
+        }
+
+        function updateChart(newVal) {
+            if (!chartInstance) return;
+
+            // Track stats
+            if (newVal > peakVal) peakVal = newVal;
+            if (newVal < minVal && newVal > 0) minVal = newVal;
+            sumVal += newVal;
+            countVal++;
+
+            const avgVal = (countVal > 0) ? (sumVal / countVal) : 0.0;
+            const unit = (currentGraphMetric === 'VOLT') ? 'V' : (currentGraphMetric === 'DAYA' ? 'W' : 'A');
+
+            document.getElementById('stat-peak').innerText = `${peakVal.toFixed(3)} ${unit}`;
+            document.getElementById('stat-avg').innerText = `${avgVal.toFixed(3)} ${unit}`;
+            document.getElementById('stat-min').innerText = `${(minVal === 999.0 ? 0.0 : minVal).toFixed(3)} ${unit}`;
+            document.getElementById('stat-energy').innerText = `${totalEnergyMwh.toFixed(1)} mWh`;
+
+            chartInstance.data.datasets[0].data = dataPoints;
+            chartInstance.update();
+        }
+
+        // --- Channel Selection ---
+        function selectChannel(chNum) {
+            selectedChannel = chNum;
+            ['ch1', 'ch2', 'ch3', 'avo'].forEach((name, idx) => {
+                const btn = document.getElementById(`tab-${name}`);
+                if (idx + 1 === chNum) {
+                    btn.className = 'py-1 text-center rounded text-[11px] font-orbitron font-bold transition-all bg-neonBlue/20 text-neonBlue border border-neonBlue/50 shadow-neon-blue';
+                } else {
+                    btn.className = 'py-1 text-center rounded text-[11px] font-orbitron font-bold transition-all text-gray-400 hover:text-white';
+                }
+            });
+
+            const labels = ['CH1 EXT', 'CH2 STEP', 'CH3 QC', 'AVO DIGITAL'];
+            document.getElementById('active-ch-badge-i').innerText = labels[chNum - 1];
+            document.getElementById('active-ch-badge-v').innerText = labels[chNum - 1];
+            
+            resetChart();
+        }
+
+        // --- Metric Switcher ---
+        function selectGraphMetric(metric) {
+            currentGraphMetric = metric;
+            const metrics = ['ARUS', 'VOLT', 'DAYA', 'ALL'];
+            
+            metrics.forEach(m => {
+                const btn = document.getElementById(`metric-${m.toLowerCase()}`);
+                if (m === metric) {
+                    btn.className = 'text-[11px] font-orbitron font-bold text-white bg-neonOrange px-2.5 py-0.5 rounded-full shadow-neon-orange transition-all';
+                } else {
+                    btn.className = 'text-[11px] font-orbitron font-bold text-gray-400 hover:text-white px-2.5 py-0.5 rounded-full transition-all';
+                }
+            });
+
+            if (metric === 'VOLT') {
+                chartInstance.data.datasets[0].borderColor = '#ffdd00';
+                chartInstance.data.datasets[0].backgroundColor = 'rgba(255, 221, 0, 0.12)';
+                chartInstance.options.scales.y.suggestedMax = 25.0;
+            } else if (metric === 'DAYA') {
+                chartInstance.data.datasets[0].borderColor = '#ff3344';
+                chartInstance.data.datasets[0].backgroundColor = 'rgba(255, 51, 68, 0.12)';
+                chartInstance.options.scales.y.suggestedMax = 50.0;
+            } else {
+                chartInstance.data.datasets[0].borderColor = '#ff8800';
+                chartInstance.data.datasets[0].backgroundColor = 'rgba(255, 136, 0, 0.12)';
+                chartInstance.options.scales.y.suggestedMax = 3.0;
+            }
+
+            resetChart();
+        }
+
+        // --- Hardware Switch Command Execution ---
+        async function toggleSwitch(target) {
+            let currentState = 0;
+            if (target === 'mosfet') currentState = telemetry.m;
+            else if (target === 'relay1') currentState = telemetry.r1;
+            else if (target === 'relay2') currentState = telemetry.r2;
+
+            const nextVal = (currentState === 1) ? 0 : 1;
+            
+            // Immediate optimistic local update
+            if (target === 'mosfet') telemetry.m = nextVal;
+            else if (target === 'relay1') telemetry.r1 = nextVal;
+            else if (target === 'relay2') telemetry.r2 = nextVal;
+            updateUI();
+
+            if (!isDemoMode) {
+                try {
+                    await fetch(`http://${espIp}/cmd?set=${target}&val=${nextVal}`);
+                    logTerminal(`[CMD] ${target.toUpperCase()} -> ${nextVal === 1 ? 'ON' : 'OFF'}`);
+                } catch (e) {
+                    logTerminal(`[ERROR] Gagal mengirim perintah switch ke ${espIp}`);
+                }
+            } else {
+                logTerminal(`[DEMO] ${target.toUpperCase()} diubah ke ${nextVal === 1 ? 'ON' : 'OFF'}`);
+            }
+        }
+
+        function toggleAllSwitches() {
+            const anyOn = (telemetry.m === 1 || telemetry.r1 === 1 || telemetry.r2 === 1);
+            const targetVal = anyOn ? 0 : 1;
+            telemetry.m = targetVal;
+            telemetry.r1 = targetVal;
+            telemetry.r2 = targetVal;
+            updateUI();
+
+            if (!isDemoMode) {
+                fetch(`http://${espIp}/cmd?set=all&val=${targetVal}`);
+            }
+            logTerminal(`[CMD] ALL SWITCHES -> ${targetVal === 1 ? 'ON' : 'OFF'}`);
+        }
+
+        // --- Mode Switching ---
+        function switchMode(modeName, btnElement) {
+            currentMode = modeName;
+            document.getElementById('current-mode-display').innerText = `${modeName} MODE`;
+            
+            document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
+            btnElement.classList.add('active');
+
+            if (modeName === 'TERMINAL') {
+                document.getElementById('terminal-view').classList.remove('hidden');
+            } else {
+                document.getElementById('terminal-view').classList.add('hidden');
+            }
+
+            if (modeName === 'USB') selectChannel(3);
+            else if (modeName === 'PSU') selectChannel(1);
+            else if (modeName === 'PROBE') selectChannel(4);
+        }
+
+        function closeTerminal() {
+            document.getElementById('terminal-view').classList.add('hidden');
+            switchMode('PSU', document.querySelector('.nav-button'));
+        }
+
+        // --- Terminal Functions ---
+        function logTerminal(msg) {
+            const logs = document.getElementById('terminal-logs');
+            const row = document.createElement('div');
+            row.innerText = msg;
+            logs.appendChild(row);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        async function sendTerminalCmd() {
+            const input = document.getElementById('terminal-input');
+            const cmd = input.value.trim();
+            if (!cmd) return;
+            input.value = '';
+
+            logTerminal(`> ${cmd}`);
+
+            if (cmd === 'clear') {
+                document.getElementById('terminal-logs').innerHTML = '';
+                return;
+            }
+
+            if (cmd === 'ping') {
+                testConnection();
+                return;
+            }
+
+            try {
+                const res = await fetch(`http://${espIp}/test?msg=${encodeURIComponent(cmd)}`);
+                const json = await res.json();
+                logTerminal(`[RESP] ${JSON.stringify(json)}`);
+            } catch (err) {
+                logTerminal(`[ERR] Tidak dapat terhubung ke ESP (${espIp})`);
+            }
+        }
+
+        // --- Connection Testing ---
+        async function testConnection() {
+            logTerminal(`[PING] Mengirim ping ke http://${espIp}/ping ...`);
+            const start = performance.now();
+            try {
+                const res = await fetch(`http://${espIp}/ping`);
+                const json = await res.json();
+                const latency = Math.round(performance.now() - start);
+                logTerminal(`[PONG] OK! Uptime: ${(json.uptime_ms/1000).toFixed(1)}s | RSSI: ${json.rssi}dBm | Latency: ${latency}ms`);
+                alert(`Koneksi Sukses!\nLatency: ${latency}ms\nRSSI: ${json.rssi} dBm\nUptime: ${(json.uptime_ms/1000).toFixed(1)} detik`);
+            } catch (e) {
+                logTerminal(`[PING ERROR] Gagal tersambung ke http://${espIp}/ping`);
+                alert(`Gagal terhubung ke ESP di ${espIp}.\nPastikan WiFi terhubung ke AP SmartPSU atau satu jaringan!`);
+            }
+        }
+
+        // --- Analysis / Recording Toggle ---
+        function toggleLiveAnalysis() {
+            isAnalyzing = !isAnalyzing;
+            const btn = document.getElementById('btn-analyze');
+            const text = document.getElementById('btn-analyze-text');
+            const icon = document.getElementById('analyze-icon');
+
+            if (isAnalyzing) {
+                btn.className = 'mt-auto bg-transparent border border-neonRed text-neonRed hover:bg-neonRed/10 rounded-lg py-2.5 flex items-center justify-center gap-2 font-bold font-orbitron text-xs transition-all active:scale-95 shadow-neon-red shrink-0';
+                text.innerText = 'BERHENTI ANALISA';
+                icon.className = 'ph-bold ph-stop text-base';
+            } else {
+                btn.className = 'mt-auto bg-transparent border border-neonOrange text-neonOrange hover:bg-neonOrange/10 rounded-lg py-2.5 flex items-center justify-center gap-2 font-bold font-orbitron text-xs transition-all active:scale-95 shadow-[0_0_10px_rgba(255,136,0,0.2)] shrink-0';
+                text.innerText = 'MULAI ANALISA LIVE';
+                icon.className = 'ph-bold ph-caret-double-right text-base';
+            }
+        }
+
+        function togglePauseChart() {
+            isChartPaused = !isChartPaused;
+            const icon = document.getElementById('icon-pause');
+            if (isChartPaused) {
+                icon.className = 'ph-bold ph-play';
+                document.getElementById('btn-pause-chart').classList.add('bg-neonOrange', 'text-black');
+            } else {
+                icon.className = 'ph-bold ph-pause';
+                document.getElementById('btn-pause-chart').classList.remove('bg-neonOrange', 'text-black');
+            }
+        }
+
+        function resetChart() {
+            dataPoints = Array(MAX_DATA_POINTS).fill(0.0);
+            peakVal = 0.0;
+            minVal = 999.0;
+            sumVal = 0.0;
+            countVal = 0;
+            if (chartInstance) {
+                chartInstance.data.datasets[0].data = dataPoints;
+                chartInstance.update();
+            }
+        }
+
+        function resetCapacity() {
+            totalCapacityMah = 0.0;
+            totalEnergyMwh = 0.0;
+            updateUI();
+        }
+
+        // --- Modals & Settings ---
+        function openIpModal() {
+            document.getElementById('input-esp-ip').value = espIp;
+            document.getElementById('input-interval').value = pollingIntervalMs;
+            document.getElementById('input-demo-mode').checked = isDemoMode;
+            document.getElementById('modal-ip').classList.remove('hidden');
+        }
+
+        function closeIpModal() {
+            document.getElementById('modal-ip').classList.add('hidden');
+        }
+
+        function saveIpSettings() {
+            espIp = document.getElementById('input-esp-ip').value.trim() || '192.168.4.1';
+            pollingIntervalMs = parseInt(document.getElementById('input-interval').value) || 100;
+            isDemoMode = document.getElementById('input-demo-mode').checked;
+
+            localStorage.setItem('smartpsu_esp_ip', espIp);
+            localStorage.setItem('smartpsu_interval', pollingIntervalMs.toString());
+            localStorage.setItem('smartpsu_demo', isDemoMode.toString());
+
+            document.getElementById('polling-rate-text').innerText = `${pollingIntervalMs}ms (${Math.round(1000/pollingIntervalMs)}Hz)`;
+            closeIpModal();
+
+            // Restart polling interval
+            clearInterval(pollingTimer);
+            pollingTimer = setInterval(fetchTelemetry, pollingIntervalMs);
+            logTerminal(`[CONFIG] IP ESP diubah ke: ${espIp}, Polling: ${pollingIntervalMs}ms, Demo: ${isDemoMode}`);
+        }
+
+        function openOtaModal() {
+            document.getElementById('modal-ota').classList.remove('hidden');
+        }
+
+        function closeOtaModal() {
+            document.getElementById('modal-ota').classList.add('hidden');
+        }
+
+        function updateOtaFilename(input) {
+            if (input.files && input.files[0]) {
+                document.getElementById('ota-file-label').innerText = input.files[0].name;
+            }
+        }
+
+        async function startOtaUpload() {
+            const fileInput = document.getElementById('ota-file-input');
+            if (!fileInput.files || !fileInput.files[0]) {
+                alert('Pilih file firmware .bin terlebih dahulu!');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('update', file);
+
+            document.getElementById('ota-progress-container').classList.remove('hidden');
+            const progressBar = document.getElementById('ota-progress-bar');
+            const statusText = document.getElementById('ota-status-text');
+
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `http://${espIp}/update`, true);
+
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) {
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        progressBar.style.width = percent + '%';
+                        statusText.innerText = `Mengunggah... ${percent}%`;
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        statusText.innerText = 'FLASH SUKSES! ESP Sedang Reboot...';
+                        progressBar.style.width = '100%';
+                        setTimeout(closeOtaModal, 3000);
+                    } else {
+                        statusText.innerText = 'Gagal melakukan update OTA.';
+                    }
+                };
+
+                xhr.onerror = function() {
+                    statusText.innerText = 'Error koneksi saat OTA.';
+                };
+
+                xhr.send(formData);
+            } catch (err) {
+                statusText.innerText = 'Gagal menghubungi server OTA ESP.';
+            }
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {});
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+            }
+        }
+
+        // --- Initialization on Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initChart();
+            document.getElementById('polling-rate-text').innerText = `${pollingIntervalMs}ms (${Math.round(1000/pollingIntervalMs)}Hz)`;
+            
+            // Start real-time polling
+            pollingTimer = setInterval(fetchTelemetry, pollingIntervalMs);
+            fetchTelemetry();
+
+            // Resize handler
+            window.addEventListener('resize', () => {
+                if (chartInstance) chartInstance.resize();
+            });
+        });
+    </script>
+</body>
+</html>
