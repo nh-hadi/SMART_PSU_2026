@@ -8,12 +8,12 @@
 ## 📸 Interface & Dashboard Preview
 
 <p align="center">
-  <img src="docs/psu_h1.jpg" width="90%" alt="Smart PSU Gauge Dashboard & Realtime Curve" />
+  <img src="docs/psu_h2.jpg" width="90%" alt="PSU Lab & OCP Protection" />
 </p>
 
 <p align="center">
+  <img src="docs/psu_h1.jpg" width="48%" alt="Smart PSU Gauge Dashboard & Realtime Curve" />
   <img src="docs/usb_h1.jpg" width="48%" alt="USB Detail & QC Diagnostics" />
-  <img src="docs/psu_h2.jpg" width="48%" alt="PSU Lab & OCP Protection" />
 </p>
 
 ---
